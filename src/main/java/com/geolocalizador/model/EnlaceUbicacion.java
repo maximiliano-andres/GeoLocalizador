@@ -1,0 +1,136 @@
+package com.geolocalizador.model;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "enlaces_ubicacion")
+public class EnlaceUbicacion {
+
+    public enum Estado {
+        PENDIENTE,
+        COMPLETADO,
+        EXPIRADO
+    }
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 64)
+    private String token;
+
+    @Column(nullable = false)
+    private String etiqueta;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Estado estado;
+
+    private Double latitud;
+    private Double longitud;
+    private Double precisionMetros;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime fechaCreacion;
+
+    @Column(nullable = false)
+    private LocalDateTime fechaExpiracion;
+
+    private LocalDateTime fechaCaptura;
+
+    public EnlaceUbicacion() {
+    }
+
+    public EnlaceUbicacion(String token, String etiqueta, LocalDateTime fechaExpiracion) {
+        this.token = token;
+        this.etiqueta = etiqueta;
+        this.estado = Estado.PENDIENTE;
+        this.fechaCreacion = LocalDateTime.now();
+        this.fechaExpiracion = fechaExpiracion;
+    }
+
+    public boolean estaExpirado() {
+        return LocalDateTime.now().isAfter(this.fechaExpiracion);
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public String getEtiqueta() {
+        return etiqueta;
+    }
+
+    public void setEtiqueta(String etiqueta) {
+        this.etiqueta = etiqueta;
+    }
+
+    public Estado getEstado() {
+        return estado;
+    }
+
+    public void setEstado(Estado estado) {
+        this.estado = estado;
+    }
+
+    public Double getLatitud() {
+        return latitud;
+    }
+
+    public void setLatitud(Double latitud) {
+        this.latitud = latitud;
+    }
+
+    public Double getLongitud() {
+        return longitud;
+    }
+
+    public void setLongitud(Double longitud) {
+        this.longitud = longitud;
+    }
+
+    public Double getPrecisionMetros() {
+        return precisionMetros;
+    }
+
+    public void setPrecisionMetros(Double precisionMetros) {
+        this.precisionMetros = precisionMetros;
+    }
+
+    public LocalDateTime getFechaCreacion() {
+        return fechaCreacion;
+    }
+
+    public void setFechaCreacion(LocalDateTime fechaCreacion) {
+        this.fechaCreacion = fechaCreacion;
+    }
+
+    public LocalDateTime getFechaExpiracion() {
+        return fechaExpiracion;
+    }
+
+    public void setFechaExpiracion(LocalDateTime fechaExpiracion) {
+        this.fechaExpiracion = fechaExpiracion;
+    }
+
+    public LocalDateTime getFechaCaptura() {
+        return fechaCaptura;
+    }
+
+    public void setFechaCaptura(LocalDateTime fechaCaptura) {
+        this.fechaCaptura = fechaCaptura;
+    }
+}

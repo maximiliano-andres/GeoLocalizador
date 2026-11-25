@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compartir ubicación</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f4f6f9;
+            color: #1f2937;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            max-width: 440px;
+            width: 100%;
+            padding: 28px;
+        }
+        h1 { font-size: 1.35rem; margin: 0 0 8px; }
+        .etiqueta {
+            display: inline-block;
+            background: #eef2ff;
+            color: #3730a3;
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 14px;
+        }
+        p { line-height: 1.5; color: #4b5563; margin: 0 0 18px; }
+        button {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            background: #2563eb;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover:not(:disabled) { background: #1d4ed8; }
+        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.92rem;
+            display: none;
+        }
+        .status.info { display: block; background: #eff6ff; color: #1e40af; }
+        .status.ok { display: block; background: #ecfdf5; color: #065f46; }
+        .status.error { display: block; background: #fef2f2; color: #991b1b; }
+        a { color: #2563eb; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Solicitud de ubicación</h1>
+        <div id="etiqueta" class="etiqueta" style="display:none;"></div>
+        <p id="descripcion">
+            Esta página solicita permiso a tu navegador para compartir tu ubicación actual
+            (latitud y longitud) únicamente para esta solicitud. No se enviará ningún dato
+            hasta que presiones el botón y aceptes el permiso del navegador.
+        </p>
+        <button id="btnCompartir" disabled>Compartir mi ubicación</button>
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        const partes = window.location.pathname.split("/").filter(Boolean);
+        const token = partes[partes.length - 1];
+        const btn = document.getElementById("btnCompartir");
+        const statusEl = document.getElementById("status");
+        const etiquetaEl = document.getElementById("etiqueta");
+
+        function mostrarEstado(tipo, html) {
+            statusEl.className = "status " + tipo;
+            statusEl.innerHTML = html;
+        }
+
+        async function cargarSolicitud() {
+            try {
+                const res = await fetch(`/api/enlaces/${encodeURIComponent(token)}`);
+                if (!res.ok) {
+                    mostrarEstado("error", "Este enlace no existe o no es válido.");
+                    return;
+                }
+                const data = await res.json();
+                etiquetaEl.textContent = "Referencia: " + data.etiqueta;
+                etiquetaEl.style.display = "inline-block";
+
+                if (data.estado === "COMPLETADO") {
+                    mostrarEstado("ok", `Esta solicitud ya fue completada. <a href="${data.urlMapa}" target="_blank" rel="noopener">Ver en mapa</a>`);
+                    return;
+                }
+                if (data.estado === "EXPIRADO") {
+                    mostrarEstado("error", "Este enlace ha expirado.");
+                    return;
+                }
+                btn.disabled = false;
+            } catch (e) {
+                mostrarEstado("error", "No se pudo conectar con el servidor.");
+            }
+        }
+
+        btn.addEventListener("click", () => {
+            if (!navigator.geolocation) {
+                mostrarEstado("error", "Tu navegador no soporta geolocalización.");
+                return;
+            }
+
+            btn.disabled = true;
+            mostrarEstado("info", "Solicitando permiso de ubicación al navegador...");
+
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    const payload = {
+                        latitud: pos.coords.latitude,
+                        longitud: pos.coords.longitude,
+                        precisionMetros: pos.coords.accuracy
+                    };
+
+                    try {
+                        const res = await fetch(`/api/enlaces/${encodeURIComponent(token)}/ubicacion`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            mostrarEstado("error", data.error || "Error al guardar la ubicación.");
+                            return;
+                        }
+                        mostrarEstado(
+                            "ok",
+                            `Ubicación compartida correctamente (precisión aprox. ${Math.round(payload.precisionMetros)} m). ` +
+                            `<a href="${data.urlMapa}" target="_blank" rel="noopener">Ver en mapa</a>`
+                        );
+                    } catch (e) {
+                        mostrarEstado("error", "Error al enviar la ubicación al servidor.");
+                        btn.disabled = false;
+                    }
+                },
+                (err) => {
+                    const mensajes = {
+                        1: "Permiso de ubicación denegado por el usuario.",
+                        2: "No se pudo determinar la ubicación del equipo.",
+                        3: "Se agotó el tiempo de espera al obtener la ubicación."
+                    };
+                    mostrarEstado("error", mensajes[err.code] || "Error al obtener la ubicación.");
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        });
+
+        cargarSolicitud();
+    </script>
+</body>
+</html>
