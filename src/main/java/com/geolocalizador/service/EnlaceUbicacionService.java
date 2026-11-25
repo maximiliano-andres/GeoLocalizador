@@ -36,21 +36,21 @@ public class EnlaceUbicacionService {
         int minutos = request.minutosExpiracionEfectivos();
         LocalDateTime expiracion = LocalDateTime.now().plusMinutes(minutos);
         EnlaceUbicacion enlace = new EnlaceUbicacion(token, request.etiqueta(), expiracion);
-        EnlaceUbicacion guardado = enlaceRepository.save(enlace);
-
-        boolean correoEnviado = false;
         if (request.correoDestino() != null && !request.correoDestino().isBlank()) {
-            String urlCompartir = baseUrl + "/compartir/" + guardado.getToken();
+            String destino = request.correoDestino().trim();
+            enlace.setCorreoDestino(destino);
+            String urlCompartir = baseUrl + "/compartir/" + token;
             correoService.enviarEnlaceUbicacion(
-                    request.correoDestino().trim(),
-                    guardado.getEtiqueta(),
+                    destino,
+                    enlace.getEtiqueta(),
                     urlCompartir,
                     minutos
             );
-            correoEnviado = true;
+            enlace.setCorreoEnviado(true);
         }
 
-        return EnlaceResponse.fromEntity(guardado, baseUrl, correoEnviado);
+        EnlaceUbicacion guardado = enlaceRepository.save(enlace);
+        return EnlaceResponse.fromEntity(guardado, baseUrl);
     }
 
     @Transactional

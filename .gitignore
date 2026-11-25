@@ -24,3 +24,6 @@ target/
 ### Frontend ###
 frontend/node_modules/
 frontend/dist/
+
+### Base de datos local H2 ###
+data/

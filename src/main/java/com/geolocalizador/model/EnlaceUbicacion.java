@@ -27,6 +27,11 @@ public class EnlaceUbicacion {
     @Column(nullable = false)
     private Estado estado;
 
+    private String correoDestino;
+
+    @Column(nullable = false)
+    private boolean correoEnviado;
+
     private Double latitud;
     private Double longitud;
     private Double precisionMetros;
@@ -46,6 +51,7 @@ public class EnlaceUbicacion {
         this.token = token;
         this.etiqueta = etiqueta;
         this.estado = Estado.PENDIENTE;
+        this.correoEnviado = false;
         this.fechaCreacion = LocalDateTime.now();
         this.fechaExpiracion = fechaExpiracion;
     }
@@ -84,6 +90,22 @@ public class EnlaceUbicacion {
 
     public void setEstado(Estado estado) {
         this.estado = estado;
+    }
+
+    public String getCorreoDestino() {
+        return correoDestino;
+    }
+
+    public void setCorreoDestino(String correoDestino) {
+        this.correoDestino = correoDestino;
+    }
+
+    public boolean isCorreoEnviado() {
+        return correoEnviado;
+    }
+
+    public void setCorreoEnviado(boolean correoEnviado) {
+        this.correoEnviado = correoEnviado;
     }
 
     public Double getLatitud() {

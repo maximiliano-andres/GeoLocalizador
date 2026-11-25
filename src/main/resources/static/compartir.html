@@ -39,28 +39,43 @@
         p { line-height: 1.5; color: #4b5563; margin: 0 0 18px; }
         button {
             width: 100%;
-            padding: 12px 16px;
+            min-height: 52px;
+            padding: 14px 20px;
             font-size: 1rem;
             font-weight: 600;
             color: #fff;
             background: #2563eb;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             cursor: pointer;
         }
         button:hover:not(:disabled) { background: #1d4ed8; }
         button:disabled { background: #9ca3af; cursor: not-allowed; }
         .status {
             margin-top: 16px;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 0.92rem;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 0.94rem;
             display: none;
         }
         .status.info { display: block; background: #eff6ff; color: #1e40af; }
         .status.ok { display: block; background: #ecfdf5; color: #065f46; }
         .status.error { display: block; background: #fef2f2; color: #991b1b; }
-        a { color: #2563eb; }
+        .status a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 46px;
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: #059669;
+            color: #ffffff;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .status a:hover { background: #047857; }
     </style>
 </head>
 <body>
@@ -83,9 +98,17 @@
         const statusEl = document.getElementById("status");
         const etiquetaEl = document.getElementById("etiqueta");
 
-        function mostrarEstado(tipo, html) {
+        function mostrarEstado(tipo, texto, urlMapa) {
             statusEl.className = "status " + tipo;
-            statusEl.innerHTML = html;
+            statusEl.textContent = texto;
+            if (urlMapa) {
+                const link = document.createElement("a");
+                link.href = urlMapa;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.textContent = "Ver en mapa";
+                statusEl.appendChild(link);
+            }
         }
 
         async function cargarSolicitud() {
@@ -100,11 +123,18 @@
                 etiquetaEl.style.display = "inline-block";
 
                 if (data.estado === "COMPLETADO") {
-                    mostrarEstado("ok", `Esta solicitud ya fue completada. <a href="${data.urlMapa}" target="_blank" rel="noopener">Ver en mapa</a>`);
+                    mostrarEstado("ok", "Esta solicitud ya fue completada.", data.urlMapa);
                     return;
                 }
                 if (data.estado === "EXPIRADO") {
                     mostrarEstado("error", "Este enlace ha expirado.");
+                    return;
+                }
+                if (!window.isSecureContext) {
+                    mostrarEstado(
+                        "error",
+                        "Este enlace debe abrirse mediante HTTPS (o localhost) para que el navegador permita compartir la ubicación."
+                    );
                     return;
                 }
                 btn.disabled = false;
@@ -143,8 +173,8 @@
                         }
                         mostrarEstado(
                             "ok",
-                            `Ubicación compartida correctamente (precisión aprox. ${Math.round(payload.precisionMetros)} m). ` +
-                            `<a href="${data.urlMapa}" target="_blank" rel="noopener">Ver en mapa</a>`
+                            `Ubicación compartida correctamente (precisión aprox. ${Math.round(payload.precisionMetros)} m).`,
+                            data.urlMapa
                         );
                     } catch (e) {
                         mostrarEstado("error", "Error al enviar la ubicación al servidor.");

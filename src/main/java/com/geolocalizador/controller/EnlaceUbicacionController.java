@@ -51,7 +51,7 @@ public class EnlaceUbicacionController {
 
     private String obtenerBaseUrl() {
         if (configuredBaseUrl != null && !configuredBaseUrl.isBlank()) {
-            return configuredBaseUrl.replaceAll("/+$", "");
+            return configuredBaseUrl.trim().replaceAll("/+$", "");
         }
         return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     }

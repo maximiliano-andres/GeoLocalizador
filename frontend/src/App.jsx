@@ -28,6 +28,9 @@ export default function App() {
       if (!res.ok) throw new Error('No se pudo obtener la lista de enlaces');
       const data = await res.json();
       setEnlaces([...data].reverse());
+      setError((prev) =>
+        prev && prev.startsWith('No se pudo conectar') ? null : prev
+      );
     } catch (err) {
       setError('No se pudo conectar con el backend en http://localhost:8080.');
     } finally {
@@ -64,7 +67,13 @@ export default function App() {
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { error: `Error del servidor (HTTP ${res.status}). Verifica que el backend esté activo.` };
+      }
       if (!res.ok) {
         const detalle =
           data.error ||
