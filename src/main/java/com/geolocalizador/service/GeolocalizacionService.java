@@ -55,10 +55,32 @@ public class GeolocalizacionService {
 
     /**
      * Busca ubicaciones registradas dentro de un radio (en km) desde un punto dado,
+     * aplicando primero un pre-filtro bounding box en SQL y luego Haversine exacto,
      * ordenadas de menor a mayor distancia.
      */
     public List<UbicacionResponse> buscarCercanas(double lat, double lon, double radioKm) {
-        return ubicacionRepository.findAll()
+        double deltaLat = Math.toDegrees(radioKm / RADIO_TIERRA_KM);
+        double minLat = Math.max(-90.0, lat - deltaLat);
+        double maxLat = Math.min(90.0, lat + deltaLat);
+
+        double cosLat = Math.cos(Math.toRadians(lat));
+        double minLon;
+        double maxLon;
+        if (cosLat < 0.01) {
+            minLon = -180.0;
+            maxLon = 180.0;
+        } else {
+            double deltaLon = Math.toDegrees(radioKm / (RADIO_TIERRA_KM * cosLat));
+            if (deltaLon >= 180.0 || lon - deltaLon < -180.0 || lon + deltaLon > 180.0) {
+                minLon = -180.0;
+                maxLon = 180.0;
+            } else {
+                minLon = lon - deltaLon;
+                maxLon = lon + deltaLon;
+            }
+        }
+
+        return ubicacionRepository.findByLatitudBetweenAndLongitudBetween(minLat, maxLat, minLon, maxLon)
                 .stream()
                 .map(u -> {
                     double distancia = calcularDistanciaKm(lat, lon, u.getLatitud(), u.getLongitud());

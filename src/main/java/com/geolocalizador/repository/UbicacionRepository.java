@@ -9,4 +9,7 @@ import java.util.List;
 @Repository
 public interface UbicacionRepository extends JpaRepository<Ubicacion, Long> {
     List<Ubicacion> findByNombreContainingIgnoreCase(String nombre);
+
+    List<Ubicacion> findByLatitudBetweenAndLongitudBetween(
+            double minLat, double maxLat, double minLon, double maxLon);
 }

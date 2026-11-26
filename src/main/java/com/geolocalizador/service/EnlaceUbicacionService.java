@@ -55,12 +55,10 @@ public class EnlaceUbicacionService {
 
     @Transactional
     public List<EnlaceResponse> listarEnlaces(String baseUrl) {
-        return enlaceRepository.findAll()
+        enlaceRepository.marcarExpirados(LocalDateTime.now());
+        return enlaceRepository.findAllByOrderByFechaCreacionDesc()
                 .stream()
-                .map(enlace -> {
-                    actualizarExpiracionSiCorresponde(enlace);
-                    return EnlaceResponse.fromEntity(enlace, baseUrl);
-                })
+                .map(enlace -> EnlaceResponse.fromEntity(enlace, baseUrl))
                 .toList();
     }
 

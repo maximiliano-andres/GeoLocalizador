@@ -233,4 +233,46 @@ class EnlaceUbicacionIntegrationTest {
                         .header("Access-Control-Request-Method", "POST"))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    void rechazaPrecisionNegativaYExpiraEnBloqueAlListar() throws Exception {
+        EnlaceUbicacion vencido = new EnlaceUbicacion(
+                "token-vencido-listado",
+                "Antiguo",
+                LocalDateTime.now().minusMinutes(10)
+        );
+        vencido.setFechaCreacion(LocalDateTime.now().minusMinutes(20));
+        enlaceRepository.save(vencido);
+
+        EnlaceUbicacion vigente = new EnlaceUbicacion(
+                "token-vigente-listado",
+                "Reciente",
+                LocalDateTime.now().plusMinutes(30)
+        );
+        enlaceRepository.save(vigente);
+
+        // GET /api/enlaces expira en bloque y ordena del más reciente al más antiguo
+        mockMvc.perform(get("/api/enlaces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].token").value("token-vigente-listado"))
+                .andExpect(jsonPath("$[0].estado").value("PENDIENTE"))
+                .andExpect(jsonPath("$[1].token").value("token-vencido-listado"))
+                .andExpect(jsonPath("$[1].estado").value("EXPIRADO"));
+
+        // Precisión negativa -> 400 Bad Request
+        String precisionInvalida = """
+                {
+                  "latitud": -33.4378,
+                  "longitud": -70.6504,
+                  "precisionMetros": -12.0
+                }
+                """;
+
+        mockMvc.perform(post("/api/enlaces/{token}/ubicacion", "token-vigente-listado")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(precisionInvalida))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.precisionMetros").isNotEmpty());
+    }
 }

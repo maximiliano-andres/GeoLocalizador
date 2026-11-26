@@ -5,11 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Compartir ubicación</title>
     <style>
+        :root {
+            --color-1: #FAF5EC;
+            --color-2: #EADFC8;
+            --color-3: #D4A373;
+            --color-4: #287271;
+            --color-5: #1D3B3A;
+        }
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #f4f6f9;
-            color: #1f2937;
+            background: var(--color-1);
+            color: var(--color-5);
             margin: 0;
             min-height: 100vh;
             display: flex;
@@ -18,39 +25,41 @@
             padding: 16px;
         }
         .card {
-            background: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            background: #fffdf9;
+            border: 1px solid #dfd1b6;
+            border-radius: 14px;
+            box-shadow: 0 6px 24px rgba(29, 59, 58, 0.08);
             max-width: 440px;
             width: 100%;
             padding: 28px;
         }
-        h1 { font-size: 1.35rem; margin: 0 0 8px; }
+        h1 { font-size: 1.35rem; margin: 0 0 10px; color: var(--color-5); }
         .etiqueta {
             display: inline-block;
-            background: #eef2ff;
-            color: #3730a3;
+            background: var(--color-2);
+            color: var(--color-5);
+            border: 1px solid var(--color-3);
             font-weight: 600;
             font-size: 0.9rem;
-            padding: 4px 10px;
-            border-radius: 6px;
+            padding: 5px 12px;
+            border-radius: 999px;
             margin-bottom: 14px;
         }
-        p { line-height: 1.5; color: #4b5563; margin: 0 0 18px; }
+        p { line-height: 1.5; color: #4b6362; margin: 0 0 20px; }
         button {
             width: 100%;
             min-height: 52px;
             padding: 14px 20px;
             font-size: 1rem;
-            font-weight: 600;
-            color: #fff;
-            background: #2563eb;
+            font-weight: 700;
+            color: var(--color-1);
+            background: var(--color-4);
             border: none;
             border-radius: 10px;
             cursor: pointer;
         }
-        button:hover:not(:disabled) { background: #1d4ed8; }
-        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        button:hover:not(:disabled) { background: var(--color-5); }
+        button:disabled { background: #9eb5b4; cursor: not-allowed; }
         .status {
             margin-top: 16px;
             padding: 14px;
@@ -58,9 +67,9 @@
             font-size: 0.94rem;
             display: none;
         }
-        .status.info { display: block; background: #eff6ff; color: #1e40af; }
-        .status.ok { display: block; background: #ecfdf5; color: #065f46; }
-        .status.error { display: block; background: #fef2f2; color: #991b1b; }
+        .status.info { display: block; background: var(--color-2); color: var(--color-5); }
+        .status.ok { display: block; background: #edf6f5; border: 1px solid var(--color-4); color: var(--color-5); }
+        .status.error { display: block; background: #fae8e6; border: 1px solid #e7b5b0; color: #9a342e; }
         .status a {
             display: flex;
             align-items: center;
@@ -69,13 +78,13 @@
             min-height: 46px;
             margin-top: 12px;
             padding: 10px 16px;
-            background: #059669;
-            color: #ffffff;
+            background: var(--color-4);
+            color: var(--color-1);
             border-radius: 8px;
-            font-weight: 600;
+            font-weight: 700;
             text-decoration: none;
         }
-        .status a:hover { background: #047857; }
+        .status a:hover { background: var(--color-5); }
     </style>
 </head>
 <body>

@@ -4,7 +4,13 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "enlaces_ubicacion")
+@Table(
+        name = "enlaces_ubicacion",
+        indexes = {
+                @Index(name = "idx_enlace_estado_expiracion", columnList = "estado, fechaExpiracion"),
+                @Index(name = "idx_enlace_fecha_creacion", columnList = "fechaCreacion")
+        }
+)
 public class EnlaceUbicacion {
 
     public enum Estado {
@@ -16,6 +22,9 @@ public class EnlaceUbicacion {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Version
+    private Long version;
 
     @Column(nullable = false, unique = true, length = 64)
     private String token;

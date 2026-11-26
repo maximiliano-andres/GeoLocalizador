@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 
 @RestController
@@ -23,7 +24,7 @@ public class EnlaceUbicacionController {
     public EnlaceUbicacionController(EnlaceUbicacionService enlaceService,
                                      @Value("${app.base-url:}") String configuredBaseUrl) {
         this.enlaceService = enlaceService;
-        this.configuredBaseUrl = configuredBaseUrl;
+        this.configuredBaseUrl = validarYNormalizarBaseUrl(configuredBaseUrl);
     }
 
     @PostMapping
@@ -50,9 +51,24 @@ public class EnlaceUbicacionController {
     }
 
     private String obtenerBaseUrl() {
-        if (configuredBaseUrl != null && !configuredBaseUrl.isBlank()) {
-            return configuredBaseUrl.trim().replaceAll("/+$", "");
+        if (!configuredBaseUrl.isEmpty()) {
+            return configuredBaseUrl;
         }
         return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
+    }
+
+    private static String validarYNormalizarBaseUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return "";
+        }
+        String normalized = rawUrl.trim().replaceAll("/+$", "");
+        URI uri = URI.create(normalized);
+        String scheme = uri.getScheme();
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))
+                || uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new IllegalArgumentException(
+                    "APP_BASE_URL debe ser una URL válida con http:// o https:// (valor recibido: '" + rawUrl + "')");
+        }
+        return normalized;
     }
 }

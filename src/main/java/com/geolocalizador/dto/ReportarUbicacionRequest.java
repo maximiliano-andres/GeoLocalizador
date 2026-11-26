@@ -3,6 +3,7 @@ package com.geolocalizador.dto;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 
 public record ReportarUbicacionRequest(
         @NotNull(message = "La latitud es obligatoria")
@@ -15,6 +16,7 @@ public record ReportarUbicacionRequest(
         @DecimalMax(value = "180.0", message = "La longitud debe ser menor o igual a 180")
         Double longitud,
 
+        @PositiveOrZero(message = "La precisión en metros debe ser mayor o igual a 0")
         Double precisionMetros
 ) {
 }

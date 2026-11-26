@@ -4,7 +4,10 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "ubicaciones")
+@Table(
+        name = "ubicaciones",
+        indexes = @Index(name = "idx_ubicacion_lat_lon", columnList = "latitud, longitud")
+)
 public class Ubicacion {
 
     @Id
