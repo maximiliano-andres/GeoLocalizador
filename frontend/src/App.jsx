@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+const API_BASE = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+
 function formatearFecha(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-CL', {
@@ -24,7 +26,7 @@ export default function App() {
   async function cargarEnlaces() {
     setCargandoLista(true);
     try {
-      const res = await fetch('/api/enlaces');
+      const res = await fetch(`${API_BASE}/api/enlaces`);
       if (!res.ok) throw new Error('No se pudo obtener la lista de enlaces');
       const data = await res.json();
       setEnlaces([...data].reverse());
@@ -32,7 +34,7 @@ export default function App() {
         prev && prev.startsWith('No se pudo conectar') ? null : prev
       );
     } catch (err) {
-      setError('No se pudo conectar con el backend en http://localhost:8080.');
+      setError(`No se pudo conectar con el backend en ${API_BASE || 'http://localhost:8080'}.`);
     } finally {
       setCargandoLista(false);
     }
@@ -61,7 +63,7 @@ export default function App() {
         correoDestino: correoDestino.trim() || null
       };
 
-      const res = await fetch('/api/enlaces', {
+      const res = await fetch(`${API_BASE}/api/enlaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

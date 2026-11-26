@@ -17,7 +17,7 @@ Aplicación full-stack (Spring Boot + React) diseñada para generar enlaces temp
 <p>
   <img src="https://img.shields.io/badge/SMTP-Gmail_STARTTLS-EA4335?style=flat-square&logo=gmail&logoColor=white" alt="Gmail SMTP" />
   <img src="https://img.shields.io/badge/Mapas-OpenStreetMap-7EBC6F?style=flat-square&logo=openstreetmap&logoColor=white" alt="OpenStreetMap" />
-  <img src="https://img.shields.io/badge/Tests-11_pasando-2EA44F?style=flat-square" alt="11 tests pasando" />
+  <img src="https://img.shields.io/badge/Tests-12_pasando-2EA44F?style=flat-square" alt="12 tests pasando" />
   <img src="https://img.shields.io/badge/Licencia-Sin_definir-lightgrey?style=flat-square" alt="Licencia sin definir" />
 </p>
 
@@ -282,7 +282,9 @@ Crea un archivo `.env` en la raíz del proyecto (está ignorado en `.gitignore` 
 | :--- | :-: | :--- | :--- |
 | `MAIL_USERNAME` | Solo para envío de correos | Cuenta de Gmail remitente (`tu_correo@gmail.com`). | *(vacío)* |
 | `MAIL_PASSWORD` | Solo para envío de correos | Contraseña de aplicación de Google (16 caracteres). | *(vacío)* |
-| `APP_BASE_URL` | Opcional | URL base usada para construir `urlCompartir` (ej. `http://localhost:8080` o tu túnel `https://...`). | URL de la petición actual |
+| `APP_BASE_URL` | Opcional | URL base para `urlCompartir` (ej. `https://tu-dominio.com`). Si está vacía, se detecta automáticamente desde la petición (incluyendo encabezados `X-Forwarded-*` de proxies HTTPS). | Automática |
+| `APP_CORS_ORIGINS` | Opcional | Orígenes permitidos por CORS separados por coma (ej. `https://mi-panel.vercel.app`). | `http://localhost:5173,http://127.0.0.1:5173` |
+| `VITE_API_URL` *(frontend)* | Opcional | URL del backend cuando el frontend React se despliega en otro dominio distinto al backend. | *(vacío, mismo origen / proxy Vite)* |
 
 Ejemplo de `.env`:
 
@@ -385,13 +387,22 @@ APP_BASE_URL=http://localhost:8080
 | **Exposición de credenciales SMTP** | `MAIL_USERNAME` y `MAIL_PASSWORD` se leen desde `.env` (excluido en `.gitignore`) y la conexión a Gmail exige `STARTTLS` (`mail.smtp.starttls.required=true`). |
 | **Inyección SQL y datos malformados** | Persistencia mediante Spring Data JPA / Hibernate con consultas parametrizadas y validación estricta de rangos geográficos (`-90..90`, `-180..180`), correos y campos requeridos. |
 | **Cross-Site Scripting (XSS)** | `compartir.html` renderiza mensajes con `textContent` y crea enlaces con `document.createElement("a")` en lugar de `innerHTML`. |
-| **CORS abierto** | `CorsConfig` restringe `/api/**` únicamente a `http://localhost:5173` y `http://127.0.0.1:5173`. |
+| **CORS abierto** | `CorsConfig` restringe `/api/**` únicamente a los orígenes declarados en `APP_CORS_ORIGINS` (por defecto `http://localhost:5173` y `http://127.0.0.1:5173`). |
+
+### ¿Por qué HTTPS es obligatorio y la mejor opción?
+
+Los navegadores modernos (Chrome, Safari, Firefox, Edge) exigen un **Contexto Seguro (`Secure Context`)** para habilitar la API de geolocalización (`navigator.geolocation`). Solo existen dos excepciones válidas: `http://localhost` (para desarrollo en tu propio equipo) o cualquier dominio/túnel sobre **HTTPS**.
+
+- **Requisito técnico del navegador:** si abres el enlace por `http://` desde una IP de red local o un dominio sin TLS, el navegador bloquea la lectura del GPS/Wi-Fi. La página `compartir.html` valida `window.isSecureContext` y avisa al usuario de inmediato.
+- **Privacidad de coordenadas en tránsito:** latitud y longitud son datos personales sensibles; HTTPS cifra toda la comunicación con TLS para que nadie en la misma red Wi-Fi (routers, ISP o ataques *man-in-the-middle*) pueda leer ni alterar las coordenadas ni el `token`.
+- **Autenticidad del destino:** el certificado TLS garantiza al usuario que está entregando su ubicación a tu servidor real y no a una página suplantada.
+- **Compatibilidad automática con proxies HTTPS:** el backend incluye `server.forward-headers-strategy=framework`, por lo que al desplegar detrás de Cloudflare Tunnel, Nginx, Caddy, Render o Cloud Run detecta automáticamente `https://tu-dominio.com` para generar enlaces válidos desde cualquier red.
 
 ---
 
 ## ✅ Calidad y pruebas
 
-Ejecutar la suite completa del backend (**11 pruebas automatizadas**):
+Ejecutar la suite completa del backend (**12 pruebas automatizadas**):
 
 ```bash
 mvn test
@@ -405,10 +416,10 @@ cd frontend && npm run build
 
 *(El proyecto no incluye un linter configurado como ESLint o Checkstyle.)*
 
-**Qué cubren las 11 pruebas** (aisladas del `.env` real usando `src/test/resources/application.properties`):
+**Qué cubren las 12 pruebas** (aisladas del `.env` real usando `src/test/resources/application.properties`):
 - `GeolocalizacionServiceTest` *(3 casos)*: precisión de Haversine entre hitos reales (mismo punto `0 km`, Santiago corto y Santiago–Valparaíso) y filtrado/ordenamiento radial.
 - `UbicacionControllerIntegrationTest` *(3 casos)*: CRUD completo HTTP (`201`, `200`, `204`, `404`), rechazo `400` de coordenadas inválidas y validación de parámetros en `/cercanas` y `/distancia`.
-- `EnlaceUbicacionIntegrationTest` *(5 casos)*: flujo end-to-end con `JavaMailSender` mockeado, forward `/compartir/{token}`, captura + doble registro en `ubicaciones`, bloqueo de reutilización (`400`), expiración automática (`EXPIRADO`), rollback + `502` ante fallo SMTP y `404`/`400` en entradas inválidas.
+- `EnlaceUbicacionIntegrationTest` *(6 casos)*: flujo end-to-end con `JavaMailSender` mockeado, forward `/compartir/{token}`, captura + doble registro en `ubicaciones`, bloqueo de reutilización (`400`), expiración automática (`EXPIRADO`), rollback + `502` ante fallo SMTP, `404`/`400` en entradas inválidas y validación de orígenes CORS.
 
 ---
 

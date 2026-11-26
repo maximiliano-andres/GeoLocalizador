@@ -219,4 +219,18 @@ class EnlaceUbicacionIntegrationTest {
                 .andExpect(jsonPath("$.minutosExpiracion").isNotEmpty())
                 .andExpect(jsonPath("$.correoDestino").isNotEmpty());
     }
+
+    @Test
+    void corsPermiteOrigenConfiguradoYRechazaNoAutorizado() throws Exception {
+        mockMvc.perform(options("/api/enlaces")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+
+        mockMvc.perform(options("/api/enlaces")
+                        .header("Origin", "https://sitio-no-autorizado.ejemplo.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
+    }
 }
