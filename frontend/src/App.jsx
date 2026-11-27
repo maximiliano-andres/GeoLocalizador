@@ -20,24 +20,21 @@ const EXPIRACIONES_RAPIDAS = [
 const ESTADO_INFO = {
   PENDIENTE: {
     texto: 'Sin sincronizar',
-    subtexto: 'Esperando respuesta',
     clase: 'pendiente',
     icono: '◌',
-    ayuda: 'Comparte el enlace y pide que presionen "Compartir mi ubicación".'
+    ayuda: 'Esperando que el usuario abra el enlace y acepte el permiso.'
   },
   COMPLETADO: {
     texto: 'Sincronizado',
-    subtexto: 'Ubicación recibida',
     clase: 'completado',
     icono: '✓',
-    ayuda: 'El equipo ya compartió su ubicación correctamente.'
+    ayuda: 'Ubicación capturada y lista en el mapa.'
   },
   EXPIRADO: {
     texto: 'Vencido',
-    subtexto: 'Sin sincronizar a tiempo',
     clase: 'expirado',
     icono: '✕',
-    ayuda: 'El tiempo límite terminó. Puedes generar uno nuevo con un clic.'
+    ayuda: 'El enlace venció sin recibir respuesta.'
   }
 };
 
@@ -53,8 +50,7 @@ function formatearHora(date) {
   if (!date) return '—';
   return date.toLocaleTimeString('es-CL', {
     hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
+    minute: '2-digit'
   });
 }
 
@@ -74,11 +70,11 @@ function describirPrecision(metros) {
   const m = Math.round(metros);
   if (m <= 30) return { nivel: 'Alta precisión', detalle: `~${m} m`, clase: 'alta' };
   if (m <= 150) return { nivel: 'Precisión media', detalle: `~${m} m`, clase: 'media' };
-  return { nivel: 'Ubicación aproximada', detalle: `~${m} m`, clase: 'baja' };
+  return { nivel: 'Aproximada', detalle: `~${m} m`, clase: 'baja' };
 }
 
 function construirUrlEmbedOsm(lat, lon) {
-  const delta = 0.006;
+  const delta = 0.005;
   const bbox = `${lon - delta},${lat - delta},${lon + delta},${lat + delta}`;
   return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat},${lon}`;
 }
@@ -89,10 +85,22 @@ export default function App() {
   const [minutosExpiracion, setMinutosExpiracion] = useState(30);
 
   const [enlaces, setEnlaces] = useState([]);
-  const [seccionActiva, setSeccionActiva] = useState('RESUMEN'); // RESUMEN | PENDIENTE | COMPLETADO | EXPIRADO | CREAR
   const [busqueda, setBusqueda] = useState('');
-  const [mapaAbiertoToken, setMapaAbiertoToken] = useState(null);
-  const [mostrarVencidosEnResumen, setMostrarVencidosEnResumen] = useState(false);
+  const [filtroMetrica, setFiltroMetrica] = useState('TODOS'); // TODOS | COMPLETADO | PENDIENTE | EXPIRADO
+  const [seleccionadoToken, setSeleccionadoToken] = useState(null);
+
+  // Control de secciones colapsables por estado
+  const [seccionesAbiertas, setSeccionesAbiertas] = useState({
+    COMPLETADO: true,
+    PENDIENTE: true,
+    EXPIRADO: false
+  });
+
+  // Control de visibilidad individual por dispositivo (token -> boolean)
+  const [dispositivosAbiertos, setDispositivosAbiertos] = useState({});
+
+  const [modalCrearAbierto, setModalCrearAbierto] = useState(false);
+  const [mostrarGuia, setMostrarGuia] = useState(false);
 
   const [cargandoLista, setCargandoLista] = useState(false);
   const [conectado, setConectado] = useState(true);
@@ -102,14 +110,12 @@ export default function App() {
   const [error, setError] = useState(null);
   const [toast, setToast] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [mostrarGuia, setMostrarGuia] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(() => Date.now());
   const [adminKey, setAdminKey] = useState(() => sessionStorage.getItem('adminKey') || '');
   const [claveInput, setClaveInput] = useState('');
   const [requiereClave, setRequiereClave] = useState(false);
 
   const abortRef = useRef(null);
-  const formRef = useRef(null);
   const toastTimerRef = useRef(null);
 
   const mostrarToast = useCallback((texto) => {
@@ -191,6 +197,77 @@ export default function App() {
     };
   }, [autoRefresh, cargarEnlaces]);
 
+  // Cerrar modales con tecla Escape
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setModalCrearAbierto(false);
+        setMostrarGuia(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const contadores = useMemo(() => {
+    return enlaces.reduce(
+      (acc, item) => {
+        acc.TODOS += 1;
+        if (acc[item.estado] !== undefined) acc[item.estado] += 1;
+        return acc;
+      },
+      { TODOS: 0, PENDIENTE: 0, COMPLETADO: 0, EXPIRADO: 0 }
+    );
+  }, [enlaces]);
+
+  const sincronizadosTodos = useMemo(
+    () => enlaces.filter((i) => i.estado === 'COMPLETADO' && i.latitud != null && i.longitud != null),
+    [enlaces]
+  );
+
+  // Auto-seleccionar el equipo sincronizado más reciente en el mapa si no hay selección válida
+  useEffect(() => {
+    if (sincronizadosTodos.length === 0) {
+      setSeleccionadoToken(null);
+      return;
+    }
+    const existe = sincronizadosTodos.some((i) => i.token === seleccionadoToken);
+    if (!existe) {
+      setSeleccionadoToken(sincronizadosTodos[0].token);
+    }
+  }, [sincronizadosTodos, seleccionadoToken]);
+
+  const equipoEnMapa = useMemo(
+    () => sincronizadosTodos.find((i) => i.token === seleccionadoToken) || null,
+    [sincronizadosTodos, seleccionadoToken]
+  );
+
+  const enlacesPorBusqueda = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return enlaces;
+    return enlaces.filter(
+      (item) =>
+        (item.etiqueta && item.etiqueta.toLowerCase().includes(q)) ||
+        (item.correoDestino && item.correoDestino.toLowerCase().includes(q)) ||
+        (item.token && item.token.toLowerCase().includes(q))
+    );
+  }, [enlaces, busqueda]);
+
+  const grupos = useMemo(
+    () => ({
+      COMPLETADO: enlacesPorBusqueda.filter((i) => i.estado === 'COMPLETADO'),
+      PENDIENTE: enlacesPorBusqueda.filter((i) => i.estado === 'PENDIENTE'),
+      EXPIRADO: enlacesPorBusqueda.filter((i) => i.estado === 'EXPIRADO')
+    }),
+    [enlacesPorBusqueda]
+  );
+
+  const tasaSincronizacion = useMemo(() => {
+    const activos = contadores.PENDIENTE + contadores.COMPLETADO;
+    if (activos === 0) return 0;
+    return Math.round((contadores.COMPLETADO / activos) * 100);
+  }, [contadores]);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
@@ -234,6 +311,8 @@ export default function App() {
       setUltimoCreado(data);
       setEtiqueta('');
       setCorreoDestino('');
+      setSeccionesAbiertas((prev) => ({ ...prev, PENDIENTE: true }));
+      setDispositivosAbiertos((prev) => ({ ...prev, [data.token]: true }));
       mostrarToast(
         data.correoEnviado
           ? `Enlace enviado a ${data.correoDestino}`
@@ -256,306 +335,558 @@ export default function App() {
     }
   }
 
-  function abrirCrearSolicitud() {
-    setSeccionActiva('CREAR');
-    setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 30);
-  }
-
   function prepararReenvio(item) {
     setEtiqueta(item.etiqueta || '');
     setCorreoDestino(item.correoDestino || '');
     setUltimoCreado(null);
-    setSeccionActiva('CREAR');
-    setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 30);
-    mostrarToast('Formulario rellenado. Presiona "Crear enlace" para generar uno nuevo.');
+    setModalCrearAbierto(true);
+    mostrarToast('Formulario rellenado para reenviar.');
   }
 
-  const contadores = useMemo(() => {
-    return enlaces.reduce(
-      (acc, item) => {
-        acc.TODOS += 1;
-        if (acc[item.estado] !== undefined) acc[item.estado] += 1;
-        return acc;
-      },
-      { TODOS: 0, PENDIENTE: 0, COMPLETADO: 0, EXPIRADO: 0 }
-    );
-  }, [enlaces]);
+  function toggleSeccion(clave) {
+    setSeccionesAbiertas((prev) => ({ ...prev, [clave]: !prev[clave] }));
+  }
 
-  const enlacesPorBusqueda = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return enlaces;
-    return enlaces.filter(
-      (item) =>
-        (item.etiqueta && item.etiqueta.toLowerCase().includes(q)) ||
-        (item.correoDestino && item.correoDestino.toLowerCase().includes(q)) ||
-        (item.token && item.token.toLowerCase().includes(q))
-    );
-  }, [enlaces, busqueda]);
+  function toggleDispositivo(token) {
+    setDispositivosAbiertos((prev) => ({ ...prev, [token]: !prev[token] }));
+  }
 
-  const grupos = useMemo(() => {
-    return {
-      PENDIENTE: enlacesPorBusqueda.filter((i) => i.estado === 'PENDIENTE'),
-      COMPLETADO: enlacesPorBusqueda.filter((i) => i.estado === 'COMPLETADO'),
-      EXPIRADO: enlacesPorBusqueda.filter((i) => i.estado === 'EXPIRADO')
-    };
-  }, [enlacesPorBusqueda]);
+  function seleccionarMetrica(clave) {
+    setFiltroMetrica(clave);
+    if (clave !== 'TODOS') {
+      setSeccionesAbiertas((prev) => ({ ...prev, [clave]: true }));
+    }
+  }
 
-  const porcentajeSincronizados = useMemo(() => {
-    const activos = contadores.PENDIENTE + contadores.COMPLETADO;
-    if (activos === 0) return 0;
-    return Math.round((contadores.COMPLETADO / activos) * 100);
-  }, [contadores]);
+  function colapsarTodosDispositivos() {
+    setDispositivosAbiertos({});
+    mostrarToast('Detalles de dispositivos ocultados');
+  }
+
+  function navegarMapa(direccion) {
+    if (sincronizadosTodos.length <= 1) return;
+    const idx = sincronizadosTodos.findIndex((i) => i.token === seleccionadoToken);
+    const nextIdx = (idx + direccion + sincronizadosTodos.length) % sincronizadosTodos.length;
+    const siguiente = sincronizadosTodos[nextIdx];
+    setSeleccionadoToken(siguiente.token);
+  }
 
   const urlWhatsApp = (item) =>
     `https://wa.me/?text=${encodeURIComponent(
       `Hola, por favor abre este enlace para compartir tu ubicación (${item.etiqueta}): ${item.urlCompartir}`
     )}`;
 
-  function renderEnlaceCard(item) {
+  function renderDispositivoRow(item) {
     const info = ESTADO_INFO[item.estado] || {
       texto: item.estado,
       clase: 'pendiente',
       icono: '•',
       ayuda: ''
     };
+    const abierto = Boolean(dispositivosAbiertos[item.token]);
+    const esSeleccionadoEnMapa = item.estado === 'COMPLETADO' && seleccionadoToken === item.token;
     const precision = describirPrecision(item.precisionMetros);
-    const mapaVisible = mapaAbiertoToken === item.token;
     const urlGoogleMaps =
       item.latitud != null && item.longitud != null
         ? `https://www.google.com/maps?q=${item.latitud},${item.longitud}`
         : null;
 
+    const subResumen =
+      item.estado === 'COMPLETADO'
+        ? `${precision ? precision.detalle + ' · ' : ''}${formatearFecha(item.fechaCaptura)}`
+        : item.estado === 'PENDIENTE'
+          ? tiempoRestante(item.fechaExpiracion, ahoraMs)
+          : `Venció ${formatearFecha(item.fechaExpiracion)}`;
+
     return (
-      <article key={item.token} className={`enlace-item item-${info.clase}`}>
-        <div className="enlace-top">
-          <div className="enlace-title-group">
-            <span className={`status-indicator status-${info.clase}`} aria-hidden="true">
+      <article
+        key={item.token}
+        className={`device-card device-${info.clase} ${esSeleccionadoEnMapa ? 'device-selected' : ''} ${abierto ? 'device-open' : ''}`}
+      >
+        <div className="device-row">
+          <button
+            type="button"
+            className="device-main-btn"
+            onClick={() => {
+              if (item.estado === 'COMPLETADO') {
+                setSeleccionadoToken(item.token);
+              }
+              toggleDispositivo(item.token);
+            }}
+            aria-expanded={abierto}
+          >
+            <span className={`device-dot dot-${info.clase}`} aria-hidden="true">
               {info.icono}
             </span>
-            <strong className="enlace-title">{item.etiqueta}</strong>
-            <span className={`badge badge-${info.clase}`}>{info.texto}</span>
-            {item.correoEnviado && item.correoDestino && (
-              <span className="badge badge-mail" title={`Enviado por correo a ${item.correoDestino}`}>
-                ✉ {item.correoDestino}
-              </span>
-            )}
-          </div>
-          <span className="meta">Creado: {formatearFecha(item.fechaCreacion)}</span>
+            <span className="device-text">
+              <strong className="device-name">{item.etiqueta}</strong>
+              <span className="device-sub">{subResumen}</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="device-toggle-btn"
+            onClick={() => toggleDispositivo(item.token)}
+            aria-label={abierto ? `Ocultar detalles de ${item.etiqueta}` : `Mostrar detalles de ${item.etiqueta}`}
+            title={abierto ? 'Ocultar' : 'Ver detalles'}
+          >
+            {abierto ? '▾' : '▸'}
+          </button>
         </div>
 
-        <p className="item-ayuda">{info.ayuda}</p>
-
-        {item.estado === 'PENDIENTE' && (
-          <>
-            <div className="url-row">
-              <code>{item.urlCompartir}</code>
-            </div>
-            <div className="item-actions">
-              <button
-                type="button"
-                className="btn-action btn-action-primary"
-                onClick={() => copiarTexto(item.urlCompartir, 'Enlace copiado')}
-              >
-                Copiar enlace
-              </button>
-              <a
-                href={urlWhatsApp(item)}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-action btn-whatsapp"
-              >
-                WhatsApp
-              </a>
-              <a
-                href={item.urlCompartir}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-action"
-              >
-                Abrir enlace
-              </a>
-              <span className="countdown">
-                {tiempoRestante(item.fechaExpiracion, ahoraMs)}
-              </span>
-            </div>
-          </>
-        )}
-
-        {item.estado === 'COMPLETADO' && (
-          <div className="coords-panel">
-            <div className="coords-info">
-              <div className="coords-line">
-                <strong>Coordenadas:</strong>{' '}
-                <span className="coords-val">
-                  {item.latitud.toFixed(6)}, {item.longitud.toFixed(6)}
+        {abierto && (
+          <div className="device-body">
+            <div className="device-meta-row">
+              <span className={`badge badge-${info.clase}`}>{info.texto}</span>
+              {item.correoEnviado && item.correoDestino && (
+                <span className="badge badge-mail" title={item.correoDestino}>
+                  ✉ {item.correoDestino}
                 </span>
-                {precision && (
-                  <span className={`precision-pill prec-${precision.clase}`}>
-                    {precision.nivel} ({precision.detalle})
+              )}
+              <span className="meta">Creado {formatearFecha(item.fechaCreacion)}</span>
+            </div>
+
+            {item.estado === 'PENDIENTE' && (
+              <>
+                <code className="mini-url">{item.urlCompartir}</code>
+                <div className="device-actions">
+                  <button
+                    type="button"
+                    className="btn-action btn-action-primary"
+                    onClick={() => copiarTexto(item.urlCompartir, 'Enlace copiado')}
+                  >
+                    Copiar enlace
+                  </button>
+                  <a
+                    href={urlWhatsApp(item)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-action btn-whatsapp"
+                  >
+                    WhatsApp
+                  </a>
+                  <a
+                    href={item.urlCompartir}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-action"
+                  >
+                    Abrir
+                  </a>
+                </div>
+              </>
+            )}
+
+            {item.estado === 'COMPLETADO' && (
+              <>
+                <div className="device-coords">
+                  <span className="coords-val">
+                    {item.latitud.toFixed(5)}, {item.longitud.toFixed(5)}
                   </span>
-                )}
-              </div>
-              <div className="meta">Recibida el {formatearFecha(item.fechaCaptura)}</div>
-            </div>
+                  {precision && (
+                    <span className={`precision-pill prec-${precision.clase}`}>
+                      {precision.nivel} ({precision.detalle})
+                    </span>
+                  )}
+                </div>
+                <div className="device-actions">
+                  <button
+                    type="button"
+                    className={`btn-action ${esSeleccionadoEnMapa ? 'btn-map-active' : 'btn-map'}`}
+                    onClick={() => setSeleccionadoToken(item.token)}
+                  >
+                    {esSeleccionadoEnMapa ? 'En mapa ✓' : 'Centrar mapa'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-action"
+                    onClick={() =>
+                      copiarTexto(`${item.latitud}, ${item.longitud}`, 'Coordenadas copiadas')
+                    }
+                  >
+                    Copiar
+                  </button>
+                  {urlGoogleMaps && (
+                    <a
+                      href={urlGoogleMaps}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-action"
+                    >
+                      Maps ↗
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
 
-            <div className="item-actions">
-              <button
-                type="button"
-                className="btn-action btn-map"
-                onClick={() => setMapaAbiertoToken(mapaVisible ? null : item.token)}
-              >
-                {mapaVisible ? 'Ocultar mapa' : 'Ver mapa aquí'}
-              </button>
-              {item.urlMapa && (
-                <a
-                  href={item.urlMapa}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-action"
+            {item.estado === 'EXPIRADO' && (
+              <div className="device-actions">
+                <button
+                  type="button"
+                  className="btn-action btn-action-primary"
+                  onClick={() => prepararReenvio(item)}
                 >
-                  OpenStreetMap ↗
-                </a>
-              )}
-              {urlGoogleMaps && (
-                <a
-                  href={urlGoogleMaps}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn-action"
-                >
-                  Google Maps ↗
-                </a>
-              )}
-              <button
-                type="button"
-                className="btn-action"
-                onClick={() =>
-                  copiarTexto(`${item.latitud}, ${item.longitud}`, 'Coordenadas copiadas')
-                }
-              >
-                Copiar coordenadas
-              </button>
-            </div>
-
-            {mapaVisible && (
-              <div className="map-embed-wrap">
-                <iframe
-                  title={`Mapa de ${item.etiqueta}`}
-                  src={construirUrlEmbedOsm(item.latitud, item.longitud)}
-                  loading="lazy"
-                />
+                  Reenviar solicitud
+                </button>
               </div>
             )}
-          </div>
-        )}
-
-        {item.estado === 'EXPIRADO' && (
-          <div className="item-actions">
-            <span className="meta">Venció el {formatearFecha(item.fechaExpiracion)}</span>
-            <button
-              type="button"
-              className="btn-action btn-action-primary"
-              onClick={() => prepararReenvio(item)}
-            >
-              Crear uno nuevo igual
-            </button>
           </div>
         )}
       </article>
     );
   }
 
-  const navSecciones = [
+  const seccionesConfig = [
     {
-      key: 'RESUMEN',
-      titulo: 'Panel General',
-      desc: 'Vista dividida',
-      count: contadores.TODOS,
-      tone: 'neutral',
-      icono: '◫'
+      key: 'COMPLETADO',
+      titulo: 'Sincronizados',
+      subtitulo: 'Con ubicación GPS en mapa',
+      tone: 'completado',
+      items: grupos.COMPLETADO
     },
     {
       key: 'PENDIENTE',
       titulo: 'Sin sincronizar',
-      desc: 'Esperando GPS',
-      count: contadores.PENDIENTE,
+      subtitulo: 'Esperando permiso del equipo',
       tone: 'pendiente',
-      icono: '◌'
-    },
-    {
-      key: 'COMPLETADO',
-      titulo: 'Sincronizados',
-      desc: 'Con ubicación',
-      count: contadores.COMPLETADO,
-      tone: 'completado',
-      icono: '✓'
+      items: grupos.PENDIENTE
     },
     {
       key: 'EXPIRADO',
       titulo: 'Vencidos',
-      desc: 'Historial',
-      count: contadores.EXPIRADO,
+      subtitulo: 'Historial expirado',
       tone: 'expirado',
-      icono: '✕'
-    },
-    {
-      key: 'CREAR',
-      titulo: 'Nueva solicitud',
-      desc: 'Generar enlace',
-      count: null,
-      tone: 'crear',
-      icono: '＋'
+      items: grupos.EXPIRADO
     }
-  ];
+  ].filter((sec) => filtroMetrica === 'TODOS' || filtroMetrica === sec.key);
+
+  const precisionMapa = equipoEnMapa ? describirPrecision(equipoEnMapa.precisionMetros) : null;
+  const urlGoogleMapa =
+    equipoEnMapa && equipoEnMapa.latitud != null && equipoEnMapa.longitud != null
+      ? `https://www.google.com/maps?q=${equipoEnMapa.latitud},${equipoEnMapa.longitud}`
+      : null;
+  const indiceEnMapa = equipoEnMapa
+    ? sincronizadosTodos.findIndex((i) => i.token === equipoEnMapa.token) + 1
+    : 0;
 
   return (
-    <div className="page">
+    <div className="app-viewport">
+      {/* Barra superior ordenada: Marca + Métricas + Controles rápidos */}
       <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <img src="/img/max_andres_head_256.webp" alt="Logo Geolocalizador" className="brand-icon" />
-            <div>
-              <h1>Geolocalizador</h1>
-              <p className="subtitle">
-                Control de ubicaciones con consentimiento · Separa al instante equipos sincronizados y pendientes.
-              </p>
+        <div className="topbar-left">
+          <img src="/img/max_andres_head_256.webp" alt="Logo" className="brand-icon" />
+          <div className="brand-copy">
+            <h1>Geolocalizador</h1>
+            <div className="status-strip">
+              <span className={`conn-dot ${conectado ? 'ok' : 'off'}`} />
+              <span>{conectado ? 'En línea' : 'Sin conexión'}</span>
+              {ultimaSync && <span className="sep">·</span>}
+              {ultimaSync && <span>Sync {formatearHora(ultimaSync)}</span>}
             </div>
           </div>
+        </div>
 
-          <div className="topbar-right">
-            <span className={`conn-pill ${conectado ? 'conn-ok' : 'conn-off'}`}>
-              <span className="dot" />
-              {conectado ? 'Servidor activo' : 'Sin conexión'}
-            </span>
+        {/* Métricas ordenadas en una sola franja interactiva */}
+        <nav className="metrics-bar" aria-label="Métricas de estado">
+          {[
+            { key: 'TODOS', label: 'Total', val: contadores.TODOS, tone: 'neutral' },
+            { key: 'COMPLETADO', label: 'Sincronizados', val: contadores.COMPLETADO, tone: 'completado' },
+            { key: 'PENDIENTE', label: 'Sin sincronizar', val: contadores.PENDIENTE, tone: 'pendiente' },
+            { key: 'EXPIRADO', label: 'Vencidos', val: contadores.EXPIRADO, tone: 'expirado' }
+          ].map((m) => (
             <button
+              key={m.key}
               type="button"
-              className="btn-ghost"
-              onClick={() => setMostrarGuia((v) => !v)}
+              className={`metric-pill metric-${m.tone} ${filtroMetrica === m.key ? 'metric-active' : ''}`}
+              onClick={() => seleccionarMetrica(m.key)}
             >
-              {mostrarGuia ? 'Ocultar guía' : '¿Cómo funciona?'}
+              <span className="metric-num">{m.val}</span>
+              <span className="metric-label">{m.label}</span>
             </button>
-            <button
-              type="button"
-              className={`btn-topbar-cta ${seccionActiva === 'CREAR' ? 'btn-topbar-cta-active' : ''}`}
-              onClick={abrirCrearSolicitud}
-            >
-              ＋ Nueva solicitud
-            </button>
+          ))}
+          <div className="metric-rate" title="Porcentaje de solicitudes activas sincronizadas">
+            <span className="metric-rate-val">{tasaSincronizacion}%</span>
+            <span className="metric-label">Tasa</span>
           </div>
+        </nav>
+
+        {/* Acciones rápidas en esquina superior derecha (Ley de Fitts) */}
+        <div className="topbar-actions">
+          <label className="auto-pill" title="Actualizar automáticamente cada 10 segundos">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            <span>Auto</span>
+          </label>
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={cargarEnlaces}
+            disabled={cargandoLista}
+            title="Actualizar ahora"
+            aria-label="Actualizar ahora"
+          >
+            {cargandoLista ? '…' : '↻'}
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={() => setMostrarGuia(true)}
+            title="¿Cómo funciona?"
+            aria-label="¿Cómo funciona?"
+          >
+            ?
+          </button>
+          <button
+            type="button"
+            className="btn-cta"
+            onClick={() => {
+              setUltimoCreado(null);
+              setModalCrearAbierto(true);
+            }}
+          >
+            ＋ Nueva solicitud
+          </button>
         </div>
       </header>
 
-      <main className="container">
-        {requiereClave && (
-          <section className="card auth-card" aria-label="Acceso al panel">
-            <div className="card-head">
-              <h2>🔒 Acceso al panel</h2>
-              <span className="hint-badge">Protegido por clave</span>
+      {/* Workspace principal: Panel lateral izquierdo + Mapa dominante derecho */}
+      <div className="workspace">
+        <aside className="sidebar" aria-label="Panel de dispositivos">
+          <div className="sidebar-tools">
+            <div className="search-box">
+              <input
+                type="search"
+                placeholder="Buscar dispositivo o correo..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                aria-label="Buscar dispositivos"
+              />
+              {busqueda && (
+                <button
+                  type="button"
+                  className="btn-clear"
+                  onClick={() => setBusqueda('')}
+                  aria-label="Limpiar búsqueda"
+                >
+                  ✕
+                </button>
+              )}
             </div>
+
+            <div className="sidebar-subtools">
+              <span className="sidebar-count">
+                {filtroMetrica === 'TODOS'
+                  ? `${enlacesPorBusqueda.length} dispositivos`
+                  : `Filtro: ${ESTADO_INFO[filtroMetrica]?.texto}`}
+              </span>
+              <div className="sidebar-mini-btns">
+                {filtroMetrica !== 'TODOS' && (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setFiltroMetrica('TODOS')}
+                  >
+                    Ver todos
+                  </button>
+                )}
+                {Object.values(dispositivosAbiertos).some(Boolean) && (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={colapsarTodosDispositivos}
+                  >
+                    Ocultar detalles
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {error && <div className="sidebar-alert" role="alert">{error}</div>}
+
+          <div className="sidebar-scroll">
+            {seccionesConfig.map((sec) => {
+              const abierta = seccionesAbiertas[sec.key];
+              return (
+                <section key={sec.key} className={`acc-section acc-${sec.tone}`}>
+                  <button
+                    type="button"
+                    className="acc-header"
+                    onClick={() => toggleSeccion(sec.key)}
+                    aria-expanded={abierta}
+                  >
+                    <div className="acc-header-left">
+                      <span className={`acc-dot dot-${sec.tone}`} />
+                      <div className="acc-titles">
+                        <strong>{sec.titulo}</strong>
+                        <span>{sec.subtitulo}</span>
+                      </div>
+                    </div>
+                    <div className="acc-header-right">
+                      <span className="acc-count">{sec.items.length}</span>
+                      <span className="acc-chevron">{abierta ? '▾' : '▸'}</span>
+                    </div>
+                  </button>
+
+                  {abierta && (
+                    <div className="acc-content">
+                      {sec.items.length === 0 ? (
+                        <div className="acc-empty">
+                          {busqueda
+                            ? 'Sin coincidencias en esta sección.'
+                            : sec.key === 'PENDIENTE'
+                              ? 'Sin solicitudes pendientes.'
+                              : sec.key === 'COMPLETADO'
+                                ? 'Aún no hay equipos sincronizados.'
+                                : 'No hay enlaces vencidos.'}
+                        </div>
+                      ) : (
+                        sec.items.map(renderDispositivoRow)
+                      )}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* Mapa Dominante */}
+        <main className="map-stage" aria-label="Mapa de ubicación dominante">
+          {equipoEnMapa ? (
+            <>
+              <iframe
+                key={equipoEnMapa.token}
+                className="dominant-map"
+                title={`Mapa de ${equipoEnMapa.etiqueta}`}
+                src={construirUrlEmbedOsm(equipoEnMapa.latitud, equipoEnMapa.longitud)}
+              />
+
+              {/* Tarjeta flotante superior con contexto del equipo */}
+              <div className="map-hud-top">
+                <div className="hud-device">
+                  <span className="hud-badge">✓ Sincronizado</span>
+                  <h2>{equipoEnMapa.etiqueta}</h2>
+                  <div className="hud-meta">
+                    <span className="coords-val">
+                      {equipoEnMapa.latitud.toFixed(6)}, {equipoEnMapa.longitud.toFixed(6)}
+                    </span>
+                    {precisionMapa && (
+                      <span className={`precision-pill prec-${precisionMapa.clase}`}>
+                        {precisionMapa.nivel} ({precisionMapa.detalle})
+                      </span>
+                    )}
+                  </div>
+                  <div className="hud-time">
+                    Recibida el {formatearFecha(equipoEnMapa.fechaCaptura)}
+                    {equipoEnMapa.correoDestino ? ` · ${equipoEnMapa.correoDestino}` : ''}
+                  </div>
+                </div>
+
+                {sincronizadosTodos.length > 1 && (
+                  <div className="hud-pager">
+                    <button
+                      type="button"
+                      className="hud-pager-btn"
+                      onClick={() => navegarMapa(-1)}
+                      aria-label="Equipo anterior"
+                      title="Equipo anterior"
+                    >
+                      ←
+                    </button>
+                    <span className="hud-pager-count">
+                      {indiceEnMapa} / {sincronizadosTodos.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="hud-pager-btn"
+                      onClick={() => navegarMapa(1)}
+                      aria-label="Siguiente equipo"
+                      title="Siguiente equipo"
+                    >
+                      →
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Barra flotante inferior de acciones rápidas (Ley de Fitts) */}
+              <div className="map-hud-bottom">
+                <button
+                  type="button"
+                  className="btn-action btn-action-primary"
+                  onClick={() =>
+                    copiarTexto(
+                      `${equipoEnMapa.latitud}, ${equipoEnMapa.longitud}`,
+                      'Coordenadas copiadas'
+                    )
+                  }
+                >
+                  Copiar coordenadas
+                </button>
+                {urlGoogleMapa && (
+                  <a
+                    href={urlGoogleMapa}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-action"
+                  >
+                    Google Maps ↗
+                  </a>
+                )}
+                {equipoEnMapa.urlMapa && (
+                  <a
+                    href={equipoEnMapa.urlMapa}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-action"
+                  >
+                    OpenStreetMap ↗
+                  </a>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="map-empty-stage">
+              <div className="map-empty-card">
+                <span className="map-empty-icon" aria-hidden="true">📍</span>
+                <h2>Mapa listo para recibir ubicaciones</h2>
+                <p>
+                  {contadores.PENDIENTE > 0
+                    ? `Tienes ${contadores.PENDIENTE} solicitud(es) esperando respuesta. Apenas alguien comparta su ubicación, aparecerá aquí.`
+                    : 'Crea una nueva solicitud y compártela. Cuando el equipo acepte el permiso, verás su punto exacto en este mapa.'}
+                </p>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setUltimoCreado(null);
+                    setModalCrearAbierto(true);
+                  }}
+                >
+                  ＋ Crear nueva solicitud
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Modal: Acceso al panel (si APP_ADMIN_KEY está activa) */}
+      {requiereClave && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Acceso al panel">
+          <div className="modal-card modal-sm">
+            <div className="modal-head">
+              <h2>🔒 Acceso al panel</h2>
+            </div>
+            <p className="modal-desc">
+              El backend tiene protección activa. Ingresa tu clave de administrador para ver y crear enlaces.
+            </p>
             <form
               className="form"
               onSubmit={(e) => {
@@ -571,161 +902,63 @@ export default function App() {
                 <input
                   id="admin-key"
                   type="password"
-                  placeholder="Ingresa APP_ADMIN_KEY"
+                  placeholder="Ingresa La CLave Secreta de Uso"
                   value={claveInput}
                   onChange={(e) => setClaveInput(e.target.value)}
+                  autoFocus
                   required
                 />
               </div>
-              <button type="submit" className="btn-primary">
+              <button type="submit" className="btn-primary btn-full">
                 Desbloquear panel
               </button>
             </form>
-          </section>
-        )}
+          </div>
+        </div>
+      )}
 
-        {mostrarGuia && (
-          <section className="card guide-card" aria-label="Cómo funciona">
-            <div className="card-head">
-              <h2>Cómo funciona en 3 pasos</h2>
+      {/* Modal: Nueva solicitud */}
+      {modalCrearAbierto && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Crear nueva solicitud"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setModalCrearAbierto(false);
+          }}
+        >
+          <div className="modal-card">
+            <div className="modal-head">
+              <div>
+                <h2>Nueva solicitud de ubicación</h2>
+                <p className="modal-desc">
+                  Se agregará a <strong>Sin sincronizar</strong> hasta que el equipo acepte el permiso.
+                </p>
+              </div>
               <button
                 type="button"
                 className="btn-dismiss"
-                onClick={() => setMostrarGuia(false)}
-                aria-label="Cerrar guía"
+                onClick={() => setModalCrearAbierto(false)}
+                aria-label="Cerrar"
               >
                 ✕
               </button>
             </div>
-            <div className="steps-grid">
-              <div className="step-box">
-                <span className="step-num">1</span>
-                <strong>Crea la solicitud</strong>
-                <p>En <em>Nueva solicitud</em> escribe un nombre y opcionalmente un correo. El enlace entra a <strong>Sin sincronizar</strong>.</p>
-              </div>
-              <div className="step-box">
-                <span className="step-num">2</span>
-                <strong>La persona acepta</strong>
-                <p>Al abrir el enlace verá el motivo, presionará <em>Compartir mi ubicación</em> y aceptará el permiso del navegador.</p>
-              </div>
-              <div className="step-box">
-                <span className="step-num">3</span>
-                <strong>Pasa a Sincronizados</strong>
-                <p>Automáticamente se mueve a la sección <strong>Sincronizados</strong> con coordenadas, precisión y mapa interactivo.</p>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Navegación principal por secciones (Ley de Fitts: objetivos grandes >= 76px con contador claro) */}
-        <nav className="workspace-nav" aria-label="Secciones del panel">
-          {navSecciones.map((sec) => (
-            <button
-              key={sec.key}
-              type="button"
-              className={`nav-tile nav-tone-${sec.tone} ${seccionActiva === sec.key ? 'nav-tile-active' : ''}`}
-              onClick={() => setSeccionActiva(sec.key)}
-              aria-current={seccionActiva === sec.key ? 'page' : undefined}
-            >
-              <div className="nav-tile-top">
-                <span className="nav-tile-icon" aria-hidden="true">{sec.icono}</span>
-                {sec.count !== null && (
-                  <span className="nav-tile-count">{sec.count}</span>
-                )}
-              </div>
-              <span className="nav-tile-title">{sec.titulo}</span>
-              <span className="nav-tile-desc">{sec.desc}</span>
-            </button>
-          ))}
-        </nav>
-
-        {error && <div className="alert alert-error alert-global" role="alert">{error}</div>}
-
-        {/* Barra de sincronización y búsqueda (visible en vistas de seguimiento) */}
-        {seccionActiva !== 'CREAR' && (
-          <section className="toolbar-card" aria-label="Controles de búsqueda y sincronización">
-            <div className="toolbar-left">
-              <div className="search-wrap">
-                <input
-                  type="search"
-                  placeholder="Buscar equipo, correo o token en todas las secciones..."
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                  aria-label="Buscar enlaces"
-                />
-                {busqueda && (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => setBusqueda('')}
-                  >
-                    Limpiar
-                  </button>
-                )}
-              </div>
-              {(contadores.PENDIENTE + contadores.COMPLETADO) > 0 && (
-                <div className="sync-progress" title="Progreso de enlaces activos sincronizados">
-                  <div className="sync-progress-labels">
-                    <span>Tasa de sincronización activa</span>
-                    <strong>{porcentajeSincronizados}% ({contadores.COMPLETADO}/{contadores.PENDIENTE + contadores.COMPLETADO})</strong>
-                  </div>
-                  <div className="sync-progress-track" role="progressbar" aria-valuenow={porcentajeSincronizados} aria-valuemin={0} aria-valuemax={100}>
-                    <div className="sync-progress-fill" style={{ width: `${porcentajeSincronizados}%` }} />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="toolbar-right">
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={autoRefresh}
-                  onChange={(e) => setAutoRefresh(e.target.checked)}
-                />
-                Auto-sync (10s)
-              </label>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={cargarEnlaces}
-                disabled={cargandoLista}
-              >
-                {cargandoLista ? 'Actualizando...' : '↻ Actualizar'}
-              </button>
-              {ultimaSync && (
-                <span className="sync-time">Última: {formatearHora(ultimaSync)}</span>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* SECCIÓN: NUEVA SOLICITUD */}
-        {seccionActiva === 'CREAR' && (
-          <section className="card form-card" ref={formRef}>
-            <div className="section-banner banner-crear">
-              <div className="section-banner-title">
-                <span className="section-banner-icon" aria-hidden="true">＋</span>
-                <div>
-                  <h2>Crear nueva solicitud de ubicación</h2>
-                  <p>Al generarlo, el enlace aparecerá en <strong>Sin sincronizar</strong> hasta que el equipo acepte el permiso.</p>
-                </div>
-              </div>
-              <span className="hint-badge">Enlace de un solo uso</span>
-            </div>
 
             <form onSubmit={handleSubmit} className="form">
               <div className="field">
-                <label htmlFor="etiqueta">¿De qué equipo o persona es esta solicitud? *</label>
+                <label htmlFor="etiqueta">Equipo o persona *</label>
                 <input
                   id="etiqueta"
                   type="text"
-                  placeholder="Ej. Celular de Juan, Laptop oficina, Pedido #104..."
+                  placeholder="Ej. Celular de Juan, Laptop oficina..."
                   value={etiqueta}
                   onChange={(e) => setEtiqueta(e.target.value)}
+                  autoFocus
                   required
                 />
-                <div className="chip-row" aria-label="Sugerencias rápidas">
+                <div className="chip-row">
                   {REFERENCIAS_RAPIDAS.map((sug) => (
                     <button
                       key={sug}
@@ -740,7 +973,7 @@ export default function App() {
               </div>
 
               <div className="field">
-                <label>¿Cuánto tiempo estará activo el enlace?</label>
+                <label>Tiempo activo del enlace</label>
                 <div className="preset-row">
                   {EXPIRACIONES_RAPIDAS.map((opt) => (
                     <button
@@ -768,35 +1001,23 @@ export default function App() {
               </div>
 
               <div className="field">
-                <label htmlFor="correo">Enviar por correo automáticamente (opcional)</label>
+                <label htmlFor="correo">Enviar por correo (opcional)</label>
                 <input
                   id="correo"
                   type="email"
-                  placeholder="persona@gmail.com (déjalo vacío si prefieres copiar el enlace)"
+                  placeholder="persona@gmail.com"
                   value={correoDestino}
                   onChange={(e) => setCorreoDestino(e.target.value)}
                 />
-                <small>
-                  Si escribes un correo, el sistema lo enviará enseguida por Gmail. Si lo dejas vacío, podrás copiarlo o enviarlo por WhatsApp.
-                </small>
               </div>
 
-              <div className="form-submit-row">
-                <button type="submit" className="btn-primary" disabled={enviando}>
-                  {enviando
-                    ? 'Creando enlace...'
-                    : correoDestino.trim()
-                      ? 'Crear enlace y enviar por correo'
-                      : 'Crear enlace ahora'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setSeccionActiva('RESUMEN')}
-                >
-                  Volver al Panel General
-                </button>
-              </div>
+              <button type="submit" className="btn-primary btn-full" disabled={enviando}>
+                {enviando
+                  ? 'Creando enlace...'
+                  : correoDestino.trim()
+                    ? 'Crear y enviar por correo'
+                    : 'Crear enlace ahora'}
+              </button>
             </form>
 
             {ultimoCreado && (
@@ -804,24 +1025,16 @@ export default function App() {
                 <div className="ready-head">
                   <strong>
                     {ultimoCreado.correoEnviado
-                      ? `Enlace creado y enviado a ${ultimoCreado.correoDestino}`
-                      : '¡Tu enlace está listo para compartir!'}
+                      ? `Enviado a ${ultimoCreado.correoDestino}`
+                      : '¡Enlace listo para compartir!'}
                   </strong>
-                  <button
-                    type="button"
-                    className="btn-dismiss"
-                    onClick={() => setUltimoCreado(null)}
-                    aria-label="Cerrar aviso"
-                  >
-                    ✕
-                  </button>
                 </div>
-                <code className="ready-url">{ultimoCreado.urlCompartir}</code>
-                <div className="ready-actions">
+                <code className="mini-url">{ultimoCreado.urlCompartir}</code>
+                <div className="device-actions">
                   <button
                     type="button"
                     className="btn-action btn-action-primary"
-                    onClick={() => copiarTexto(ultimoCreado.urlCompartir, 'Enlace copiado al portapapeles')}
+                    onClick={() => copiarTexto(ultimoCreado.urlCompartir, 'Enlace copiado')}
                   >
                     Copiar enlace
                   </button>
@@ -831,7 +1044,7 @@ export default function App() {
                     rel="noreferrer"
                     className="btn-action btn-whatsapp"
                   >
-                    Enviar por WhatsApp
+                    WhatsApp
                   </a>
                   <a
                     href={ultimoCreado.urlCompartir}
@@ -841,228 +1054,62 @@ export default function App() {
                   >
                     Probar enlace
                   </a>
-                  <button
-                    type="button"
-                    className="btn-action"
-                    onClick={() => setSeccionActiva('PENDIENTE')}
-                  >
-                    Ver en Sin sincronizar →
-                  </button>
                 </div>
               </div>
             )}
-          </section>
-        )}
+          </div>
+        </div>
+      )}
 
-        {/* SECCIÓN: PANEL GENERAL (VISTA DIVIDIDA SIN SINCRONIZAR vs SINCRONIZADOS) */}
-        {seccionActiva === 'RESUMEN' && (
-          <>
-            <div className="split-board">
-              {/* Columna Izquierda: Sin sincronizar */}
-              <section className="card board-column board-pendiente" aria-label="Equipos sin sincronizar">
-                <div className="section-banner banner-pendiente">
-                  <div className="section-banner-title">
-                    <span className="section-banner-icon pulse-dot" aria-hidden="true">◌</span>
-                    <div>
-                      <h2>Sin sincronizar ({grupos.PENDIENTE.length})</h2>
-                      <p>Enlaces activos esperando que el usuario comparta su ubicación.</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-mini"
-                    onClick={() => setSeccionActiva('PENDIENTE')}
-                  >
-                    Ampliar →
-                  </button>
-                </div>
-
-                {grupos.PENDIENTE.length === 0 ? (
-                  <div className="empty-state">
-                    <p>
-                      {busqueda
-                        ? 'No hay enlaces sin sincronizar que coincidan con tu búsqueda.'
-                        : 'No tienes solicitudes pendientes en este momento.'}
-                    </p>
-                    {!busqueda && (
-                      <button
-                        type="button"
-                        className="btn-action btn-action-primary empty-cta"
-                        onClick={abrirCrearSolicitud}
-                      >
-                        ＋ Crear nueva solicitud
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="list">
-                    {grupos.PENDIENTE.map(renderEnlaceCard)}
-                  </div>
-                )}
-              </section>
-
-              {/* Columna Derecha: Sincronizados */}
-              <section className="card board-column board-completado" aria-label="Equipos sincronizados">
-                <div className="section-banner banner-completado">
-                  <div className="section-banner-title">
-                    <span className="section-banner-icon" aria-hidden="true">✓</span>
-                    <div>
-                      <h2>Sincronizados ({grupos.COMPLETADO.length})</h2>
-                      <p>Equipos que ya enviaron sus coordenadas y están listos en mapa.</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-mini"
-                    onClick={() => setSeccionActiva('COMPLETADO')}
-                  >
-                    Ampliar →
-                  </button>
-                </div>
-
-                {grupos.COMPLETADO.length === 0 ? (
-                  <div className="empty-state">
-                    <p>
-                      {busqueda
-                        ? 'No hay equipos sincronizados que coincidan con tu búsqueda.'
-                        : 'Aún no hay ubicaciones recibidas. Aparecerán aquí apenas alguien acepte el permiso.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="list">
-                    {grupos.COMPLETADO.map(renderEnlaceCard)}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            {/* Franja colapsable de vencidos para no ensuciar el trabajo activo */}
-            {grupos.EXPIRADO.length > 0 && (
-              <section className="card expired-drawer" aria-label="Enlaces vencidos">
-                <div className="expired-drawer-head">
-                  <div className="section-banner-title">
-                    <span className="section-banner-icon icon-expirado" aria-hidden="true">✕</span>
-                    <div>
-                      <h2>Vencidos sin sincronizar ({grupos.EXPIRADO.length})</h2>
-                      <p>Enlaces cuyo tiempo límite terminó. Puedes reenviarlos con 1 clic.</p>
-                    </div>
-                  </div>
-                  <div className="expired-drawer-actions">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setMostrarVencidosEnResumen((v) => !v)}
-                    >
-                      {mostrarVencidosEnResumen ? 'Ocultar lista' : `Mostrar (${grupos.EXPIRADO.length})`}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-mini"
-                      onClick={() => setSeccionActiva('EXPIRADO')}
-                    >
-                      Ir a Vencidos →
-                    </button>
-                  </div>
-                </div>
-
-                {mostrarVencidosEnResumen && (
-                  <div className="list expired-drawer-list">
-                    {grupos.EXPIRADO.map(renderEnlaceCard)}
-                  </div>
-                )}
-              </section>
-            )}
-          </>
-        )}
-
-        {/* SECCIÓN DEDICADA: SIN SINCRONIZAR */}
-        {seccionActiva === 'PENDIENTE' && (
-          <section className="card board-column board-pendiente" aria-label="Sección sin sincronizar">
-            <div className="section-banner banner-pendiente">
-              <div className="section-banner-title">
-                <span className="section-banner-icon pulse-dot" aria-hidden="true">◌</span>
-                <div>
-                  <h2>Sin sincronizar ({grupos.PENDIENTE.length})</h2>
-                  <p>Solicitudes activas esperando que el equipo abra el enlace y comparta su ubicación.</p>
-                </div>
-              </div>
+      {/* Modal: Guía rápida */}
+      {mostrarGuia && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Cómo funciona"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setMostrarGuia(false);
+          }}
+        >
+          <div className="modal-card modal-sm">
+            <div className="modal-head">
+              <h2>Cómo funciona en 3 pasos</h2>
               <button
                 type="button"
-                className="btn-action btn-action-primary"
-                onClick={abrirCrearSolicitud}
+                className="btn-dismiss"
+                onClick={() => setMostrarGuia(false)}
+                aria-label="Cerrar"
               >
-                ＋ Nueva solicitud
+                ✕
               </button>
             </div>
-
-            {grupos.PENDIENTE.length === 0 ? (
-              <div className="empty-state">
-                <p>
-                  {busqueda
-                    ? 'Ningún enlace sin sincronizar coincide con tu búsqueda.'
-                    : '¡Todo al día! No hay solicitudes esperando respuesta.'}
-                </p>
-              </div>
-            ) : (
-              <div className="list">{grupos.PENDIENTE.map(renderEnlaceCard)}</div>
-            )}
-          </section>
-        )}
-
-        {/* SECCIÓN DEDICADA: SINCRONIZADOS */}
-        {seccionActiva === 'COMPLETADO' && (
-          <section className="card board-column board-completado" aria-label="Sección sincronizados">
-            <div className="section-banner banner-completado">
-              <div className="section-banner-title">
-                <span className="section-banner-icon" aria-hidden="true">✓</span>
+            <div className="guide-list">
+              <div className="step-box">
+                <span className="step-num">1</span>
                 <div>
-                  <h2>Sincronizados ({grupos.COMPLETADO.length})</h2>
-                  <p>Equipos cuya ubicación ya fue capturada. Abre el mapa integrado o copia sus coordenadas.</p>
+                  <strong>Crea una solicitud</strong>
+                  <p>Pulsa <em>＋ Nueva solicitud</em> y compártela por WhatsApp, correo o copiando el enlace.</p>
+                </div>
+              </div>
+              <div className="step-box">
+                <span className="step-num">2</span>
+                <div>
+                  <strong>Consentimiento explícito</strong>
+                  <p>La persona abre el enlace, presiona <em>Compartir mi ubicación</em> y acepta el permiso.</p>
+                </div>
+              </div>
+              <div className="step-box">
+                <span className="step-num">3</span>
+                <div>
+                  <strong>Explora en el mapa</strong>
+                  <p>El equipo pasa a <strong>Sincronizados</strong> en el panel lateral y se muestra en el mapa principal.</p>
                 </div>
               </div>
             </div>
-
-            {grupos.COMPLETADO.length === 0 ? (
-              <div className="empty-state">
-                <p>
-                  {busqueda
-                    ? 'Ningún equipo sincronizado coincide con tu búsqueda.'
-                    : 'Todavía no hay equipos sincronizados.'}
-                </p>
-              </div>
-            ) : (
-              <div className="list">{grupos.COMPLETADO.map(renderEnlaceCard)}</div>
-            )}
-          </section>
-        )}
-
-        {/* SECCIÓN DEDICADA: VENCIDOS */}
-        {seccionActiva === 'EXPIRADO' && (
-          <section className="card board-column board-expirado" aria-label="Sección vencidos">
-            <div className="section-banner banner-expirado">
-              <div className="section-banner-title">
-                <span className="section-banner-icon icon-expirado" aria-hidden="true">✕</span>
-                <div>
-                  <h2>Historial vencido ({grupos.EXPIRADO.length})</h2>
-                  <p>Enlaces que expiraron antes de ser sincronizados. Usa "Crear uno nuevo igual" para reenviar.</p>
-                </div>
-              </div>
-            </div>
-
-            {grupos.EXPIRADO.length === 0 ? (
-              <div className="empty-state">
-                <p>
-                  {busqueda
-                    ? 'Ningún enlace vencido coincide con tu búsqueda.'
-                    : 'No tienes enlaces vencidos.'}
-                </p>
-              </div>
-            ) : (
-              <div className="list">{grupos.EXPIRADO.map(renderEnlaceCard)}</div>
-            )}
-          </section>
-        )}
-      </main>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="toast" role="status" aria-live="polite">
