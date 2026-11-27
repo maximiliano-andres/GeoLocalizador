@@ -38,9 +38,15 @@ public class EnlaceUbicacion {
     @Column(nullable = false)
     private boolean correoEnviado;
 
+    @Column(length = 300)
+    private String errorCorreo;
+
     private Double latitud;
     private Double longitud;
     private Double precisionMetros;
+
+    @Column(length = 300)
+    private String direccionAproximada;
 
     @Column(nullable = false, updatable = false)
     private Instant fechaCreacion;
@@ -160,5 +166,21 @@ public class EnlaceUbicacion {
 
     public void setFechaCaptura(Instant fechaCaptura) {
         this.fechaCaptura = fechaCaptura;
+    }
+
+    public String getDireccionAproximada() {
+        return direccionAproximada;
+    }
+
+    public void setDireccionAproximada(String direccionAproximada) {
+        this.direccionAproximada = direccionAproximada;
+    }
+
+    public String getErrorCorreo() {
+        return errorCorreo;
+    }
+
+    public void setErrorCorreo(String errorCorreo) {
+        this.errorCorreo = errorCorreo;
     }
 }

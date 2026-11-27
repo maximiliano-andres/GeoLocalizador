@@ -50,6 +50,22 @@ public class EnlaceUbicacionController {
         return enlaceService.registrarUbicacion(token, request, obtenerBaseUrl());
     }
 
+    @PatchMapping("/{token}/revocar")
+    public EnlaceResponse revocar(@PathVariable String token) {
+        return enlaceService.revocarEnlace(token, obtenerBaseUrl());
+    }
+
+    @PostMapping("/{token}/reenviar-correo")
+    public EnlaceResponse reenviarCorreo(@PathVariable String token) {
+        return enlaceService.reenviarCorreo(token, obtenerBaseUrl());
+    }
+
+    @DeleteMapping("/{token}")
+    public ResponseEntity<Void> eliminar(@PathVariable String token) {
+        enlaceService.eliminarEnlace(token);
+        return ResponseEntity.noContent().build();
+    }
+
     private String obtenerBaseUrl() {
         if (!configuredBaseUrl.isEmpty()) {
             return configuredBaseUrl;

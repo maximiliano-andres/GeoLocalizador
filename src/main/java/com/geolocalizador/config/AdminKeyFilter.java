@@ -31,9 +31,14 @@ public class AdminKeyFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Solo protegemos el listado y creación del panel (/api/enlaces exacto)
+        // Protegemos las rutas de gestión del panel, dejando públicas solo las del receptor por token
         String path = request.getRequestURI();
-        boolean esRutaAdmin = "/api/enlaces".equals(path) || "/api/enlaces/".equals(path);
+        String method = request.getMethod();
+        boolean esRutaAdmin = "/api/enlaces".equals(path)
+                || "/api/enlaces/".equals(path)
+                || (path.startsWith("/api/enlaces/") && ("DELETE".equalsIgnoreCase(method)
+                        || "PATCH".equalsIgnoreCase(method)
+                        || path.endsWith("/reenviar-correo")));
         if (!esRutaAdmin) {
             filterChain.doFilter(request, response);
             return;

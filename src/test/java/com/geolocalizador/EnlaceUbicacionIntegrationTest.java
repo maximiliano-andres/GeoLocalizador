@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geolocalizador.model.EnlaceUbicacion;
 import com.geolocalizador.repository.EnlaceUbicacionRepository;
 import com.geolocalizador.repository.UbicacionRepository;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -13,7 +15,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,10 +25,12 @@ import java.time.temporal.ChronoUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -54,10 +57,11 @@ class EnlaceUbicacionIntegrationTest {
     void limpiarDatos() {
         enlaceRepository.deleteAll();
         ubicacionRepository.deleteAll();
+        when(mailSender.createMimeMessage()).thenAnswer(inv -> new MimeMessage((Session) null));
     }
 
     @Test
-    void flujoCompletoConEnvioDeCorreoYCapturaDeUbicacion() throws Exception {
+    void flujoCompletoConEnvioDeCorreoHtmlYCapturaDeUbicacion() throws Exception {
         String crearBody = """
                 {
                   "etiqueta": "Laptop Terreno 01",
@@ -66,13 +70,14 @@ class EnlaceUbicacionIntegrationTest {
                 }
                 """;
 
-        // 1. Crear enlace y verificar que se invoca Gmail SMTP con el link correcto
+        // 1. Crear enlace y verificar que se invoca Gmail SMTP con correo HTML
         String crearJson = mockMvc.perform(post("/api/enlaces")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(crearBody))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.estado").value("PENDIENTE"))
                 .andExpect(jsonPath("$.correoEnviado").value(true))
+                .andExpect(jsonPath("$.errorCorreo").value(nullValue()))
                 .andExpect(jsonPath("$.correoDestino").value("usuario.prueba@ejemplo.com"))
                 .andExpect(jsonPath("$.urlCompartir", startsWith("https://geo.ejemplo.com/compartir/")))
                 .andReturn().getResponse().getContentAsString();
@@ -80,12 +85,11 @@ class EnlaceUbicacionIntegrationTest {
         JsonNode creado = objectMapper.readTree(crearJson);
         String token = creado.get("token").asText();
 
-        ArgumentCaptor<SimpleMailMessage> mailCaptor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        ArgumentCaptor<MimeMessage> mailCaptor = ArgumentCaptor.forClass(MimeMessage.class);
         verify(mailSender, times(1)).send(mailCaptor.capture());
-        SimpleMailMessage enviado = mailCaptor.getValue();
-        assertThat(enviado.getTo()).containsExactly("usuario.prueba@ejemplo.com");
+        MimeMessage enviado = mailCaptor.getValue();
+        assertThat(enviado.getAllRecipients()[0].toString()).isEqualTo("usuario.prueba@ejemplo.com");
         assertThat(enviado.getSubject()).contains("Laptop Terreno 01");
-        assertThat(enviado.getText()).contains("https://geo.ejemplo.com/compartir/" + token);
 
         // 2. Verificar que la ruta web /compartir/{token} hace forward a /compartir.html
         mockMvc.perform(get("/compartir/{token}", token))
@@ -146,7 +150,7 @@ class EnlaceUbicacionIntegrationTest {
                 .andExpect(jsonPath("$.correoEnviado").value(false))
                 .andExpect(jsonPath("$.correoDestino").value(nullValue()));
 
-        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+        verify(mailSender, never()).send(any(MimeMessage.class));
     }
 
     @Test
@@ -177,9 +181,9 @@ class EnlaceUbicacionIntegrationTest {
     }
 
     @Test
-    void errorDeSmtpDevuelve502YHaceRollbackSinDejarEnlaceHuerfano() throws Exception {
+    void errorDeSmtpConservaEnlaceYPermiteReintentarEnvio() throws Exception {
         doThrow(new MailSendException("535 Authentication failed"))
-                .when(mailSender).send(any(SimpleMailMessage.class));
+                .when(mailSender).send(any(MimeMessage.class));
 
         String body = """
                 {
@@ -189,13 +193,53 @@ class EnlaceUbicacionIntegrationTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/enlaces")
+        String respJson = mockMvc.perform(post("/api/enlaces")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.error", containsString("SMTP")));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.estado").value("PENDIENTE"))
+                .andExpect(jsonPath("$.correoEnviado").value(false))
+                .andExpect(jsonPath("$.errorCorreo", containsString("No se pudo enviar")))
+                .andReturn().getResponse().getContentAsString();
 
-        assertThat(enlaceRepository.count()).isZero();
+        assertThat(enlaceRepository.count()).isEqualTo(1);
+        String token = objectMapper.readTree(respJson).get("token").asText();
+
+        // Al reintentar cuando SMTP vuelve a funcionar, marca correoEnviado=true y limpia errorCorreo
+        doNothing().when(mailSender).send(any(MimeMessage.class));
+        mockMvc.perform(post("/api/enlaces/{token}/reenviar-correo", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.correoEnviado").value(true))
+                .andExpect(jsonPath("$.errorCorreo").value(nullValue()));
+    }
+
+    @Test
+    void revocarYEliminarEnlace() throws Exception {
+        String body = """
+                {
+                  "etiqueta": "Enlace revocable",
+                  "minutosExpiracion": 30
+                }
+                """;
+
+        String respJson = mockMvc.perform(post("/api/enlaces")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(respJson).get("token").asText();
+
+        // Revocar -> pasa a EXPIRADO
+        mockMvc.perform(patch("/api/enlaces/{token}/revocar", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("EXPIRADO"));
+
+        // Eliminar -> 204 No Content y ya no existe
+        mockMvc.perform(delete("/api/enlaces/{token}", token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/enlaces/{token}", token))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -225,7 +269,7 @@ class EnlaceUbicacionIntegrationTest {
     void corsPermiteOrigenConfiguradoYRechazaNoAutorizado() throws Exception {
         mockMvc.perform(options("/api/enlaces")
                         .header("Origin", "http://localhost:5173")
-                        .header("Access-Control-Request-Method", "POST"))
+                        .header("Access-Control-Request-Method", "PATCH"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
 

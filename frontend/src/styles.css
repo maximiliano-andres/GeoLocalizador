@@ -1267,3 +1267,149 @@ body {
     text-align: center;
   }
 }
+
+
+/* Estilos para Leaflet, dirección legible, correo resiliente y botones destructivos */
+.leaflet-container {
+  font-family: inherit;
+  z-index: 1;
+}
+
+.map-hud-top,
+.map-hud-bottom {
+  z-index: 450;
+}
+
+.geo-marker-wrap {
+  background: transparent;
+  border: none;
+}
+
+.geo-marker {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-5);
+  border: 3px solid var(--color-3);
+  box-shadow: 0 3px 10px rgba(29, 59, 58, 0.35);
+}
+
+.geo-marker-active {
+  width: 24px;
+  height: 24px;
+  background: var(--color-4);
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 4px rgba(40, 114, 113, 0.32), 0 4px 12px rgba(29, 59, 58, 0.4);
+}
+
+.geo-popup {
+  font-size: 0.85rem;
+  color: var(--color-5);
+}
+
+.geo-popup-addr {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.geo-popup-meta {
+  margin-top: 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--color-4);
+}
+
+.hud-address {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-5);
+  margin: 0 0 6px;
+}
+
+.hud-controls-right {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hud-mode-btn {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--color-5);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(29, 59, 58, 0.12);
+}
+
+.hud-mode-btn:hover {
+  background: var(--color-2);
+}
+
+.hud-mode-active {
+  background: var(--color-4);
+  border-color: var(--color-4);
+  color: var(--color-1);
+}
+
+.hud-mode-active:hover {
+  background: var(--color-5);
+}
+
+.device-address {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-5);
+  background: rgba(40, 114, 113, 0.08);
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+
+.mail-warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid rgba(212, 163, 115, 0.7);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.btn-retry-inline {
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: none;
+  background: var(--color-5);
+  color: var(--color-1);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-retry-inline:hover:not(:disabled) {
+  background: var(--color-4);
+}
+
+.btn-danger-ghost {
+  background: #ffffff;
+  border-color: #e7b5b0;
+  color: var(--danger-text);
+}
+
+.btn-danger-ghost:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: #b44c44;
+}

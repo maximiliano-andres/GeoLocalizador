@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MapaInteractivo from './components/MapaInteractivo.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
 
@@ -88,6 +89,8 @@ export default function App() {
   const [busqueda, setBusqueda] = useState('');
   const [filtroMetrica, setFiltroMetrica] = useState('TODOS'); // TODOS | COMPLETADO | PENDIENTE | EXPIRADO
   const [seleccionadoToken, setSeleccionadoToken] = useState(null);
+  const [verTodosEnMapa, setVerTodosEnMapa] = useState(false);
+  const [accionEnCursoToken, setAccionEnCursoToken] = useState(null);
 
   // Control de secciones colapsables por estado
   const [seccionesAbiertas, setSeccionesAbiertas] = useState({
@@ -316,7 +319,9 @@ export default function App() {
       mostrarToast(
         data.correoEnviado
           ? `Enlace enviado a ${data.correoDestino}`
-          : 'Enlace creado y listo para compartir'
+          : data.errorCorreo
+            ? 'Enlace creado (el correo falló; puedes reintentar o copiarlo)'
+            : 'Enlace creado y listo para compartir'
       );
       await cargarEnlaces();
     } catch (err) {
@@ -365,10 +370,95 @@ export default function App() {
 
   function navegarMapa(direccion) {
     if (sincronizadosTodos.length <= 1) return;
+    setVerTodosEnMapa(false);
     const idx = sincronizadosTodos.findIndex((i) => i.token === seleccionadoToken);
     const nextIdx = (idx + direccion + sincronizadosTodos.length) % sincronizadosTodos.length;
     const siguiente = sincronizadosTodos[nextIdx];
     setSeleccionadoToken(siguiente.token);
+  }
+
+  async function revocarEnlace(item) {
+    setAccionEnCursoToken(item.token);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/enlaces/${encodeURIComponent(item.token)}/revocar`, {
+        method: 'PATCH',
+        headers: adminKey ? { 'X-Admin-Key': adminKey } : {}
+      });
+      if (res.status === 401) {
+        setRequiereClave(true);
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo revocar el enlace.');
+      }
+      mostrarToast(`Enlace "${item.etiqueta}" revocado`);
+      await cargarEnlaces();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAccionEnCursoToken(null);
+    }
+  }
+
+  async function eliminarEnlace(item) {
+    if (!window.confirm(`¿Eliminar definitivamente "${item.etiqueta}" del historial?`)) {
+      return;
+    }
+    setAccionEnCursoToken(item.token);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/enlaces/${encodeURIComponent(item.token)}`, {
+        method: 'DELETE',
+        headers: adminKey ? { 'X-Admin-Key': adminKey } : {}
+      });
+      if (res.status === 401) {
+        setRequiereClave(true);
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo eliminar el enlace.');
+      }
+      if (ultimoCreado?.token === item.token) {
+        setUltimoCreado(null);
+      }
+      mostrarToast(`"${item.etiqueta}" eliminado`);
+      await cargarEnlaces();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAccionEnCursoToken(null);
+    }
+  }
+
+  async function reenviarCorreo(item) {
+    setAccionEnCursoToken(item.token);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/enlaces/${encodeURIComponent(item.token)}/reenviar-correo`, {
+        method: 'POST',
+        headers: adminKey ? { 'X-Admin-Key': adminKey } : {}
+      });
+      if (res.status === 401) {
+        setRequiereClave(true);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo reenviar el correo.');
+      }
+      if (ultimoCreado?.token === item.token) {
+        setUltimoCreado(data);
+      }
+      mostrarToast(`Correo enviado a ${data.correoDestino}`);
+      await cargarEnlaces();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAccionEnCursoToken(null);
+    }
   }
 
   const urlWhatsApp = (item) =>
@@ -393,10 +483,11 @@ export default function App() {
 
     const subResumen =
       item.estado === 'COMPLETADO'
-        ? `${precision ? precision.detalle + ' · ' : ''}${formatearFecha(item.fechaCaptura)}`
+        ? item.direccionAproximada || `${precision ? precision.detalle + ' · ' : ''}${formatearFecha(item.fechaCaptura)}`
         : item.estado === 'PENDIENTE'
-          ? tiempoRestante(item.fechaExpiracion, ahoraMs)
+          ? `${tiempoRestante(item.fechaExpiracion, ahoraMs)}${item.errorCorreo ? ' · Correo pendiente' : ''}`
           : `Venció ${formatearFecha(item.fechaExpiracion)}`;
+    const ocupado = accionEnCursoToken === item.token;
 
     return (
       <article
@@ -449,6 +540,21 @@ export default function App() {
 
             {item.estado === 'PENDIENTE' && (
               <>
+                {item.errorCorreo && (
+                  <div className="mail-warn">
+                    <span>⚠ {item.errorCorreo}</span>
+                    {item.correoDestino && (
+                      <button
+                        type="button"
+                        className="btn-retry-inline"
+                        onClick={() => reenviarCorreo(item)}
+                        disabled={ocupado}
+                      >
+                        {ocupado ? 'Enviando...' : 'Reintentar correo'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <code className="mini-url">{item.urlCompartir}</code>
                 <div className="device-actions">
                   <button
@@ -474,12 +580,31 @@ export default function App() {
                   >
                     Abrir
                   </a>
+                  <button
+                    type="button"
+                    className="btn-action btn-danger-ghost"
+                    onClick={() => revocarEnlace(item)}
+                    disabled={ocupado}
+                  >
+                    {ocupado ? '...' : 'Revocar'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-action btn-danger-ghost"
+                    onClick={() => eliminarEnlace(item)}
+                    disabled={ocupado}
+                  >
+                    Eliminar
+                  </button>
                 </div>
               </>
             )}
 
             {item.estado === 'COMPLETADO' && (
               <>
+                {item.direccionAproximada && (
+                  <div className="device-address">📍 {item.direccionAproximada}</div>
+                )}
                 <div className="device-coords">
                   <span className="coords-val">
                     {item.latitud.toFixed(5)}, {item.longitud.toFixed(5)}
@@ -493,10 +618,13 @@ export default function App() {
                 <div className="device-actions">
                   <button
                     type="button"
-                    className={`btn-action ${esSeleccionadoEnMapa ? 'btn-map-active' : 'btn-map'}`}
-                    onClick={() => setSeleccionadoToken(item.token)}
+                    className={`btn-action ${esSeleccionadoEnMapa && !verTodosEnMapa ? 'btn-map-active' : 'btn-map'}`}
+                    onClick={() => {
+                      setVerTodosEnMapa(false);
+                      setSeleccionadoToken(item.token);
+                    }}
                   >
-                    {esSeleccionadoEnMapa ? 'En mapa ✓' : 'Centrar mapa'}
+                    {esSeleccionadoEnMapa && !verTodosEnMapa ? 'En mapa ✓' : 'Centrar mapa'}
                   </button>
                   <button
                     type="button"
@@ -517,6 +645,14 @@ export default function App() {
                       Maps ↗
                     </a>
                   )}
+                  <button
+                    type="button"
+                    className="btn-action btn-danger-ghost"
+                    onClick={() => eliminarEnlace(item)}
+                    disabled={ocupado}
+                  >
+                    Eliminar
+                  </button>
                 </div>
               </>
             )}
@@ -529,6 +665,14 @@ export default function App() {
                   onClick={() => prepararReenvio(item)}
                 >
                   Reenviar solicitud
+                </button>
+                <button
+                  type="button"
+                  className="btn-action btn-danger-ghost"
+                  onClick={() => eliminarEnlace(item)}
+                  disabled={ocupado}
+                >
+                  Eliminar
                 </button>
               </div>
             )}
@@ -756,22 +900,32 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Mapa Dominante */}
+        {/* Mapa Dominante Interactivo (Leaflet + radio de precisión) */}
         <main className="map-stage" aria-label="Mapa de ubicación dominante">
           {equipoEnMapa ? (
             <>
-              <iframe
-                key={equipoEnMapa.token}
-                className="dominant-map"
-                title={`Mapa de ${equipoEnMapa.etiqueta}`}
-                src={construirUrlEmbedOsm(equipoEnMapa.latitud, equipoEnMapa.longitud)}
+              <MapaInteractivo
+                dispositivos={sincronizadosTodos}
+                seleccionadoToken={equipoEnMapa.token}
+                verTodos={verTodosEnMapa}
+                onSeleccionar={(token) => {
+                  setSeleccionadoToken(token);
+                  setVerTodosEnMapa(false);
+                }}
               />
 
               {/* Tarjeta flotante superior con contexto del equipo */}
               <div className="map-hud-top">
                 <div className="hud-device">
-                  <span className="hud-badge">✓ Sincronizado</span>
+                  <span className="hud-badge">
+                    {verTodosEnMapa
+                      ? `✓ Mostrando ${sincronizadosTodos.length} sincronizados`
+                      : '✓ Sincronizado'}
+                  </span>
                   <h2>{equipoEnMapa.etiqueta}</h2>
+                  {equipoEnMapa.direccionAproximada && (
+                    <div className="hud-address">📍 {equipoEnMapa.direccionAproximada}</div>
+                  )}
                   <div className="hud-meta">
                     <span className="coords-val">
                       {equipoEnMapa.latitud.toFixed(6)}, {equipoEnMapa.longitud.toFixed(6)}
@@ -789,28 +943,39 @@ export default function App() {
                 </div>
 
                 {sincronizadosTodos.length > 1 && (
-                  <div className="hud-pager">
+                  <div className="hud-controls-right">
                     <button
                       type="button"
-                      className="hud-pager-btn"
-                      onClick={() => navegarMapa(-1)}
-                      aria-label="Equipo anterior"
-                      title="Equipo anterior"
+                      className={`hud-mode-btn ${verTodosEnMapa ? 'hud-mode-active' : ''}`}
+                      onClick={() => setVerTodosEnMapa((v) => !v)}
                     >
-                      ←
+                      {verTodosEnMapa
+                        ? 'Enfocar equipo'
+                        : `Ver todos (${sincronizadosTodos.length})`}
                     </button>
-                    <span className="hud-pager-count">
-                      {indiceEnMapa} / {sincronizadosTodos.length}
-                    </span>
-                    <button
-                      type="button"
-                      className="hud-pager-btn"
-                      onClick={() => navegarMapa(1)}
-                      aria-label="Siguiente equipo"
-                      title="Siguiente equipo"
-                    >
-                      →
-                    </button>
+                    <div className="hud-pager">
+                      <button
+                        type="button"
+                        className="hud-pager-btn"
+                        onClick={() => navegarMapa(-1)}
+                        aria-label="Equipo anterior"
+                        title="Equipo anterior"
+                      >
+                        ←
+                      </button>
+                      <span className="hud-pager-count">
+                        {indiceEnMapa} / {sincronizadosTodos.length}
+                      </span>
+                      <button
+                        type="button"
+                        className="hud-pager-btn"
+                        onClick={() => navegarMapa(1)}
+                        aria-label="Siguiente equipo"
+                        title="Siguiente equipo"
+                      >
+                        →
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1026,9 +1191,26 @@ export default function App() {
                   <strong>
                     {ultimoCreado.correoEnviado
                       ? `Enviado a ${ultimoCreado.correoDestino}`
-                      : '¡Enlace listo para compartir!'}
+                      : ultimoCreado.errorCorreo
+                        ? 'Enlace creado (correo no enviado)'
+                        : '¡Enlace listo para compartir!'}
                   </strong>
                 </div>
+                {ultimoCreado.errorCorreo && (
+                  <div className="mail-warn">
+                    <span>⚠ {ultimoCreado.errorCorreo}</span>
+                    {ultimoCreado.correoDestino && (
+                      <button
+                        type="button"
+                        className="btn-retry-inline"
+                        onClick={() => reenviarCorreo(ultimoCreado)}
+                        disabled={accionEnCursoToken === ultimoCreado.token}
+                      >
+                        {accionEnCursoToken === ultimoCreado.token ? 'Enviando...' : 'Reintentar'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <code className="mini-url">{ultimoCreado.urlCompartir}</code>
                 <div className="device-actions">
                   <button
