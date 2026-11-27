@@ -1,16 +1,13 @@
 package com.geolocalizador.model;
 
 import jakarta.persistence.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
-@Table(
-        name = "enlaces_ubicacion",
-        indexes = {
-                @Index(name = "idx_enlace_estado_expiracion", columnList = "estado, fechaExpiracion"),
-                @Index(name = "idx_enlace_fecha_creacion", columnList = "fechaCreacion")
-        }
-)
+@Table(name = "enlaces_ubicacion", indexes = {
+        @Index(name = "idx_enlace_estado_expiracion", columnList = "estado, fechaExpiracion"),
+        @Index(name = "idx_enlace_fecha_creacion", columnList = "fechaCreacion")
+})
 public class EnlaceUbicacion {
 
     public enum Estado {
@@ -46,27 +43,27 @@ public class EnlaceUbicacion {
     private Double precisionMetros;
 
     @Column(nullable = false, updatable = false)
-    private LocalDateTime fechaCreacion;
+    private Instant fechaCreacion;
 
     @Column(nullable = false)
-    private LocalDateTime fechaExpiracion;
+    private Instant fechaExpiracion;
 
-    private LocalDateTime fechaCaptura;
+    private Instant fechaCaptura;
 
     public EnlaceUbicacion() {
     }
 
-    public EnlaceUbicacion(String token, String etiqueta, LocalDateTime fechaExpiracion) {
+    public EnlaceUbicacion(String token, String etiqueta, Instant fechaExpiracion) {
         this.token = token;
         this.etiqueta = etiqueta;
         this.estado = Estado.PENDIENTE;
         this.correoEnviado = false;
-        this.fechaCreacion = LocalDateTime.now();
+        this.fechaCreacion = Instant.now();
         this.fechaExpiracion = fechaExpiracion;
     }
 
     public boolean estaExpirado() {
-        return LocalDateTime.now().isAfter(this.fechaExpiracion);
+        return Instant.now().isAfter(this.fechaExpiracion);
     }
 
     public Long getId() {
@@ -141,27 +138,27 @@ public class EnlaceUbicacion {
         this.precisionMetros = precisionMetros;
     }
 
-    public LocalDateTime getFechaCreacion() {
+    public Instant getFechaCreacion() {
         return fechaCreacion;
     }
 
-    public void setFechaCreacion(LocalDateTime fechaCreacion) {
+    public void setFechaCreacion(Instant fechaCreacion) {
         this.fechaCreacion = fechaCreacion;
     }
 
-    public LocalDateTime getFechaExpiracion() {
+    public Instant getFechaExpiracion() {
         return fechaExpiracion;
     }
 
-    public void setFechaExpiracion(LocalDateTime fechaExpiracion) {
+    public void setFechaExpiracion(Instant fechaExpiracion) {
         this.fechaExpiracion = fechaExpiracion;
     }
 
-    public LocalDateTime getFechaCaptura() {
+    public Instant getFechaCaptura() {
         return fechaCaptura;
     }
 
-    public void setFechaCaptura(LocalDateTime fechaCaptura) {
+    public void setFechaCaptura(Instant fechaCaptura) {
         this.fechaCaptura = fechaCaptura;
     }
 }

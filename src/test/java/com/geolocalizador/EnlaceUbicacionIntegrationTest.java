@@ -18,7 +18,8 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -153,7 +154,7 @@ class EnlaceUbicacionIntegrationTest {
         EnlaceUbicacion vencido = new EnlaceUbicacion(
                 "token-expirado-test",
                 "Equipo vencido",
-                LocalDateTime.now().minusMinutes(5)
+                Instant.now().minus(5, ChronoUnit.MINUTES)
         );
         enlaceRepository.save(vencido);
 
@@ -192,7 +193,7 @@ class EnlaceUbicacionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.error", containsString("Gmail SMTP")));
+                .andExpect(jsonPath("$.error", containsString("SMTP")));
 
         assertThat(enlaceRepository.count()).isZero();
     }
@@ -239,15 +240,15 @@ class EnlaceUbicacionIntegrationTest {
         EnlaceUbicacion vencido = new EnlaceUbicacion(
                 "token-vencido-listado",
                 "Antiguo",
-                LocalDateTime.now().minusMinutes(10)
+                Instant.now().minus(10, ChronoUnit.MINUTES)
         );
-        vencido.setFechaCreacion(LocalDateTime.now().minusMinutes(20));
+        vencido.setFechaCreacion(Instant.now().minus(20, ChronoUnit.MINUTES));
         enlaceRepository.save(vencido);
 
         EnlaceUbicacion vigente = new EnlaceUbicacion(
                 "token-vigente-listado",
                 "Reciente",
-                LocalDateTime.now().plusMinutes(30)
+                Instant.now().plus(30, ChronoUnit.MINUTES)
         );
         enlaceRepository.save(vigente);
 

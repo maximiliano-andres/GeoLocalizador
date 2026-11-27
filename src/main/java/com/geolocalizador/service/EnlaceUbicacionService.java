@@ -10,7 +10,9 @@ import com.geolocalizador.repository.UbicacionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -23,8 +25,8 @@ public class EnlaceUbicacionService {
     private final CorreoService correoService;
 
     public EnlaceUbicacionService(EnlaceUbicacionRepository enlaceRepository,
-                                  UbicacionRepository ubicacionRepository,
-                                  CorreoService correoService) {
+            UbicacionRepository ubicacionRepository,
+            CorreoService correoService) {
         this.enlaceRepository = enlaceRepository;
         this.ubicacionRepository = ubicacionRepository;
         this.correoService = correoService;
@@ -34,7 +36,7 @@ public class EnlaceUbicacionService {
     public EnlaceResponse crearEnlace(CrearEnlaceRequest request, String baseUrl) {
         String token = UUID.randomUUID().toString();
         int minutos = request.minutosExpiracionEfectivos();
-        LocalDateTime expiracion = LocalDateTime.now().plusMinutes(minutos);
+        Instant expiracion = Instant.now().plus(minutos, ChronoUnit.MINUTES);
         EnlaceUbicacion enlace = new EnlaceUbicacion(token, request.etiqueta(), expiracion);
         if (request.correoDestino() != null && !request.correoDestino().isBlank()) {
             String destino = request.correoDestino().trim();
@@ -44,8 +46,7 @@ public class EnlaceUbicacionService {
                     destino,
                     enlace.getEtiqueta(),
                     urlCompartir,
-                    minutos
-            );
+                    minutos);
             enlace.setCorreoEnviado(true);
         }
 
@@ -55,7 +56,7 @@ public class EnlaceUbicacionService {
 
     @Transactional
     public List<EnlaceResponse> listarEnlaces(String baseUrl) {
-        enlaceRepository.marcarExpirados(LocalDateTime.now());
+        enlaceRepository.marcarExpirados(Instant.now());
         return enlaceRepository.findAllByOrderByFechaCreacionDesc()
                 .stream()
                 .map(enlace -> EnlaceResponse.fromEntity(enlace, baseUrl))
@@ -84,7 +85,7 @@ public class EnlaceUbicacionService {
         enlace.setLatitud(request.latitud());
         enlace.setLongitud(request.longitud());
         enlace.setPrecisionMetros(request.precisionMetros());
-        enlace.setFechaCaptura(LocalDateTime.now());
+        enlace.setFechaCaptura(Instant.now());
         enlace.setEstado(EnlaceUbicacion.Estado.COMPLETADO);
         EnlaceUbicacion actualizado = enlaceRepository.save(enlace);
 
@@ -96,8 +97,7 @@ public class EnlaceUbicacionService {
                 descripcion,
                 request.latitud(),
                 request.longitud(),
-                null
-        ));
+                null));
 
         return EnlaceResponse.fromEntity(actualizado, baseUrl);
     }

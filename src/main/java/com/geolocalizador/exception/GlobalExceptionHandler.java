@@ -14,8 +14,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<Map<String, String>> handleNotFound(NoSuchElementException ex) {
@@ -37,11 +42,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MailException.class)
     public ResponseEntity<Map<String, String>> handleMailError(MailException ex) {
-        String detalle = ex.getMostSpecificCause() != null
-                ? ex.getMostSpecificCause().getMessage()
-                : ex.getMessage();
+        log.error("Error al enviar correo SMTP", ex);
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Map.of("error", "Error al enviar correo por Gmail SMTP: " + detalle));
+                .body(Map.of("error", "No se pudo enviar el correo. Verifica la configuración SMTP del servidor."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

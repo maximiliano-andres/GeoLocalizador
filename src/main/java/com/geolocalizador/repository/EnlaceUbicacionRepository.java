@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,5 +22,5 @@ public interface EnlaceUbicacionRepository extends JpaRepository<EnlaceUbicacion
     @Query("UPDATE EnlaceUbicacion e SET e.estado = com.geolocalizador.model.EnlaceUbicacion$Estado.EXPIRADO " +
             "WHERE e.estado = com.geolocalizador.model.EnlaceUbicacion$Estado.PENDIENTE " +
             "AND e.fechaExpiracion < :ahora")
-    int marcarExpirados(@Param("ahora") LocalDateTime ahora);
+    int marcarExpirados(@Param("ahora") Instant ahora);
 }
