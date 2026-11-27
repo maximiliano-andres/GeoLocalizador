@@ -30,7 +30,14 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(250, 245, 236, 0.78), rgba(250, 245, 236, 0.78)),
+    url("/img/mapa 4k.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--text);
   line-height: 1.45;
 }
@@ -232,9 +239,17 @@ body {
   font-weight: 500;
 }
 
-.kpi-pendiente .kpi-value { color: #a66a2e; }
-.kpi-completado .kpi-value { color: var(--color-4); }
-.kpi-expirado .kpi-value { color: var(--danger-text); }
+.kpi-pendiente .kpi-value {
+  color: #a66a2e;
+}
+
+.kpi-completado .kpi-value {
+  color: var(--color-4);
+}
+
+.kpi-expirado .kpi-value {
+  color: var(--danger-text);
+}
 
 /* Tarjetas */
 .card {
@@ -668,9 +683,17 @@ body {
   background: #ffffff;
 }
 
-.item-pendiente { border-left-color: var(--color-3); }
-.item-completado { border-left-color: var(--color-4); }
-.item-expirado { border-left-color: #b44c44; }
+.item-pendiente {
+  border-left-color: var(--color-3);
+}
+
+.item-completado {
+  border-left-color: var(--color-4);
+}
+
+.item-expirado {
+  border-left-color: #b44c44;
+}
 
 .enlace-top {
   display: flex;
@@ -785,9 +808,20 @@ body {
   border-radius: 999px;
 }
 
-.prec-alta { background: rgba(40, 114, 113, 0.18); color: var(--color-5); }
-.prec-media { background: var(--warning-bg); color: var(--warning-text); }
-.prec-baja { background: var(--danger-bg); color: var(--danger-text); }
+.prec-alta {
+  background: rgba(40, 114, 113, 0.18);
+  color: var(--color-5);
+}
+
+.prec-media {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.prec-baja {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
 
 .map-embed-wrap {
   border-radius: 8px;

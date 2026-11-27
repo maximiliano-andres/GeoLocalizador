@@ -261,7 +261,7 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
-            <div className="brand-icon" aria-hidden="true">📍</div>
+            <img src="/img/max_andres_head_256.webp" alt="Icono" className="brand-icon" />
             <div>
               <h1>Geolocalizador</h1>
               <p className="subtitle">
