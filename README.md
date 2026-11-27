@@ -34,12 +34,12 @@ Aplicación full-stack (Spring Boot + React) diseñada para generar enlaces temp
 | **El problema** | Confirmar dónde está un equipo en terreno, validar una entrega o asistir a un usuario remoto suele implicar pasos manuales propensos a error (copiar coordenadas o enviar ubicaciones por mensajería informal). |
 | **La solución** | Un panel web que genera un enlace único con vencimiento, lo envía por correo si se desea y, tras el permiso explícito del navegador, guarda las coordenadas y genera un acceso directo al mapa. |
 | **Para quién** | Equipos de soporte técnico, operaciones en terreno, logística o administradores que necesitan validar la ubicación de dispositivos propios o asistidos. |
-| **Seguridad** | El navegador siempre pide permiso explícito al usuario (`Geolocation API`), los enlaces expiran y son de un solo uso, las credenciales SMTP viven en `.env` y el envío usa cifrado `STARTTLS`. |
-| **Alcance** | Aplicación full-stack local/privada con API REST, base de datos H2 persistente en archivo, página pública de consentimiento, panel en React y 11 pruebas automatizadas. |
+| **Seguridad** | El navegador siempre pide permiso explícito al usuario (`Geolocation API`), los enlaces expiran y son de un solo uso, el panel administrativo soporta clave de acceso (`APP_ADMIN_KEY` / `X-Admin-Key`), las credenciales SMTP viven en `.env` con `STARTTLS` y los errores técnicos nunca se exponen al cliente. |
+| **Alcance** | Aplicación full-stack con API REST, base de datos H2 persistente en archivo (y perfil `prod` listo para PostgreSQL), fechas en UTC (`Instant`), página pública de consentimiento, panel en React por secciones y 12 pruebas automatizadas. |
 
 > [!IMPORTANT]
-> **Modalidad de uso: herramienta de uso individual / entorno privado.**
-> El proyecto no implementa cuentas de usuario, inicio de sesión ni roles. Cualquier persona con acceso al panel (`http://localhost:5173`) o a la API (`http://localhost:8080/api/**`) puede crear enlaces y consultar ubicaciones. Además, utiliza una única cuenta remitente de Gmail configurada mediante variables de entorno.
+> **Modalidad de uso: panel administrativo con clave opcional (`APP_ADMIN_KEY`).**
+> En local funciona sin fricción si `APP_ADMIN_KEY` está vacía. Al exponer la app a internet (Cloudflare Tunnel, Render, Cloud Run), define `APP_ADMIN_KEY` en `.env` y `SPRING_PROFILES_ACTIVE=prod`: solo las rutas del receptor (`/compartir/{token}` y su API por token) quedan públicas, mientras que listar y crear enlaces exigen el encabezado `X-Admin-Key` y desbloqueo en el panel.
 
 ---
 
@@ -79,11 +79,12 @@ Aplicación full-stack (Spring Boot + React) diseñada para generar enlaces temp
 
 | | Funcionalidad | Qué permite hacer |
 | :-: | :--- | :--- |
-| 🔗 | **Enlaces temporales de un solo uso** | Generar un enlace para un equipo específico (ej. *"Laptop Oficina 04"*) con vencimiento configurable entre 1 minuto y 24 horas. |
+| 🗂️ | **Panel por secciones (Ley de Fitts)** | Vista dividida en tiempo real entre **Sin sincronizar** y **Sincronizados**, historial **Vencidos** separado, barra de tasa de sincronización activa y botón rápido `＋ Nueva solicitud`. |
+| 🔗 | **Enlaces temporales de un solo uso** | Generar un enlace para un equipo específico (ej. *"Laptop Oficina 04"*) con vencimiento configurable entre 1 minuto y 24 horas y envío por WhatsApp o copia en 1 clic. |
 | ✉️ | **Envío automático por correo** | Si ingresas un correo de destino, el sistema envía el enlace automáticamente desde tu cuenta de Gmail sin salir del panel. |
 | 🛡️ | **Consentimiento transparente** | Quien abre el enlace ve el motivo de la solicitud y debe presionar un botón y aceptar el permiso del navegador; nunca se captura nada de forma oculta. |
-| 🗺️ | **Visualización en mapa** | Una vez compartida la ubicación, muestra latitud, longitud, precisión aproximada en metros y un botón directo a OpenStreetMap. |
-| 🔄 | **Monitoreo automático** | El panel actualiza el listado cada 10 segundos (activable/desactivable) para ver apenas el equipo responde. |
+| 🗺️ | **Visualización en mapa integrado** | Una vez sincronizado, muestra latitud, longitud, precisión estimada en metros, mapa OpenStreetMap embebido en la tarjeta y accesos directos a OpenStreetMap y Google Maps. |
+| 🔄 | **Monitoreo automático** | El panel actualiza el listado cada 10 segundos (activable/desactivable) mostrando la hora exacta de la última sincronización. |
 | 📏 | **Cálculo de distancias y cercanía** | Consultar la distancia en kilómetros entre dos puntos o listar ubicaciones guardadas dentro de un radio determinado. |
 
 ### Para el perfil técnico
@@ -91,11 +92,13 @@ Aplicación full-stack (Spring Boot + React) diseñada para generar enlaces temp
 | | Funcionalidad | Detalle técnico |
 | :-: | :--- | :--- |
 | 🌐 | **API REST de enlaces (`/api/enlaces`)** | `POST /api/enlaces`, `GET /api/enlaces`, `GET /api/enlaces/{token}`, `POST /api/enlaces/{token}/ubicacion` y forward web en `GET /compartir/{token}`. |
+| 🔐 | **Protección del panel (`AdminKeyFilter`)** | `OncePerRequestFilter` que valida `X-Admin-Key` en tiempo constante (`MessageDigest.isEqual`) cuando `APP_ADMIN_KEY` está configurada, sin bloquear CORS (`OPTIONS`) ni `/compartir/{token}`. |
+| 🕒 | **Fechas UTC consistentes (`Instant`)** | `EnlaceUbicacion` y `EnlaceResponse` usan `java.time.Instant` (ISO-8601 UTC), evitando desfases de zona horaria entre servidor y navegador. |
 | 📌 | **API REST de ubicaciones (`/api/ubicaciones`)** | CRUD completo (`GET`, `GET /{id}`, `POST`, `DELETE /{id}`), búsqueda radial (`GET /cercanas`) y distancia Haversine (`GET /distancia`). |
 | 🧭 | **Cálculo geodésico (Haversine)** | Implementado en `GeolocalizacionService` con radio terrestre de `6371.0 km`, ordenamiento ascendente por distancia y redondeo a 2 decimales. |
-| 🗄️ | **Persistencia JPA + H2 en archivo** | Entidades `EnlaceUbicacion` y `Ubicacion` sobre `jdbc:h2:file:./data/geolocalizadordb;AUTO_SERVER=TRUE` (sobrevive reinicios de DevTools). |
-| ⚛️ | **Frontend React + Vite con proxy** | Proxy integrado en `vite.config.js` (`/api` y `/compartir` → `localhost:8080`) y CORS explícito en `CorsConfig` para desarrollo. |
-| 🚨 | **Manejo centralizado de errores** | `@RestControllerAdvice` (`GlobalExceptionHandler`) traduce `400` (validación/estado), `404` (no encontrado) y `502` (fallo SMTP) a JSON uniforme. |
+| 🗄️ | **Persistencia JPA + perfiles `dev`/`prod`** | H2 persistente en local (`./data/geolocalizadordb`) y `application-prod.properties` que apaga `/h2-console`/`show-sql` y admite otra BD vía variables de entorno. |
+| ⚛️ | **Frontend React + Vite con proxy** | Proxy integrado en `vite.config.js` (`/api` y `/compartir` → `localhost:8080`), CORS explícito en `CorsConfig` y desbloqueo por `sessionStorage` ante `401`. |
+| 🚨 | **Manejo centralizado de errores** | `@RestControllerAdvice` (`GlobalExceptionHandler`) traduce `400`, `404`, `409` y `502` a JSON uniforme y registra detalles SMTP solo en logs del servidor. |
 
 ---
 
@@ -107,7 +110,7 @@ Aplicación full-stack (Spring Boot + React) diseñada para generar enlaces temp
 | **Framework backend** | Spring Boot | `3.4.5` | API REST (`web`), validación (`validation`), persistencia (`data-jpa`), correo (`mail`) y recarga (`devtools`). |
 | **Base de datos** | H2 Database | `2.3.232` | Almacenamiento local persistente en archivo (`./data/`) y base en memoria aislada para tests. |
 | **Frontend** | React + Vite | `^19.1.0` / `^6.3.5` | Panel de administración de enlaces con estados en vivo y diseño responsive. |
-| **Pruebas** | JUnit 5 + MockMvc + Mockito | Gestionado por Spring Boot `3.4.5` | 11 pruebas automatizadas (unitarias + integración HTTP end-to-end). |
+| **Pruebas** | JUnit 5 + MockMvc + Mockito | Gestionado por Spring Boot `3.4.5` | 12 pruebas automatizadas (unitarias + integración HTTP end-to-end). |
 | **Integraciones** | Gmail SMTP + OpenStreetMap | `smtp.gmail.com:587` | Envío de enlaces con `STARTTLS` obligatorio y apertura directa de coordenadas en mapa. |
 
 ### Competencias técnicas que demuestra
@@ -283,6 +286,8 @@ Crea un archivo `.env` en la raíz del proyecto (está ignorado en `.gitignore` 
 | `MAIL_USERNAME` | Solo para envío de correos | Cuenta de Gmail remitente (`tu_correo@gmail.com`). | *(vacío)* |
 | `MAIL_PASSWORD` | Solo para envío de correos | Contraseña de aplicación de Google (16 caracteres). | *(vacío)* |
 | `APP_BASE_URL` | Opcional | URL base para `urlCompartir` (ej. `https://tu-dominio.com`). Si está vacía, se detecta automáticamente desde la petición (incluyendo encabezados `X-Forwarded-*` de proxies HTTPS). | Automática |
+| `APP_ADMIN_KEY` | Opcional *(recomendada en prod)* | Clave para proteger `GET/POST /api/enlaces` mediante el header `X-Admin-Key`. Si está vacía, el panel abre sin clave en local. | *(vacío)* |
+| `SPRING_PROFILES_ACTIVE` | Opcional | Usa `prod` al desplegar para cargar `application-prod.properties` (desactiva `/h2-console` y `show-sql`). | *(perfil por defecto)* |
 | `APP_CORS_ORIGINS` | Opcional | Orígenes permitidos por CORS separados por coma (ej. `https://mi-panel.vercel.app`). | `http://localhost:5173,http://127.0.0.1:5173` |
 | `VITE_API_URL` *(frontend)* | Opcional | URL del backend cuando el frontend React se despliega en otro dominio distinto al backend. | *(vacío, mismo origen / proxy Vite)* |
 
@@ -292,6 +297,7 @@ Ejemplo de `.env`:
 MAIL_USERNAME=tu_correo@gmail.com
 MAIL_PASSWORD=xxxxxxxxxxxxxxxx
 APP_BASE_URL=http://localhost:8080
+# APP_ADMIN_KEY=tu-clave-secreta
 ```
 
 ### Paso 2 · Ejecutar la aplicación
@@ -318,10 +324,10 @@ APP_BASE_URL=http://localhost:8080
 <details>
 <summary><strong>Opción B: Empaquetar artefactos de producción (JAR + bundle estático)</strong></summary>
 
-1. **Generar el JAR ejecutable del backend:**
+1. **Generar y ejecutar el JAR en perfil de producción (`prod`):**
    ```bash
    mvn clean package
-   java -jar target/geolocalizador-0.0.1-SNAPSHOT.jar
+   SPRING_PROFILES_ACTIVE=prod java -jar target/geolocalizador-0.0.1-SNAPSHOT.jar
    ```
 
 2. **Generar el bundle optimizado del frontend:**
@@ -347,20 +353,20 @@ APP_BASE_URL=http://localhost:8080
 
 ### Cómo funciona el acceso
 
-- **Sin login ni usuarios**: el panel y la API no requieren autenticación; están pensados para ejecutarse en tu entorno local o red privada.
+- **Clave de panel opcional (`APP_ADMIN_KEY`)**: si no está definida, el panel funciona abierto en local; si la defines en `.env`, `AdminKeyFilter` protege `GET/POST /api/enlaces` y el frontend muestra automáticamente la tarjeta **Acceso al panel** para desbloquearlo (guardando la clave solo en `sessionStorage`). Las rutas públicas del receptor (`/compartir/{token}`) nunca piden clave.
 - **Credenciales SMTP**: provienen exclusivamente de `MAIL_USERNAME` y `MAIL_PASSWORD` en `.env` (o variables de entorno del sistema). Para cambiar la clave, edita `.env` y reinicia el backend.
 - **Si falta la configuración SMTP**: crear enlaces sin correo sigue funcionando normalmente; si intentas enviar un correo, el servidor responde `400 Bad Request` indicando qué variables faltan.
-- **Consola H2**: disponible en `http://localhost:8080/h2-console` con JDBC URL `jdbc:h2:file:./data/geolocalizadordb`, usuario `sa` y contraseña vacía.
+- **Consola H2**: disponible solo en desarrollo en `http://localhost:8080/h2-console` (JDBC URL `jdbc:h2:file:./data/geolocalizadordb`, usuario `sa`, contraseña vacía). En perfil `prod` queda desactivada automáticamente.
 
 ---
 
 ## 📖 Manual de uso
 
-1. **Paso 1 · Abrir el panel**: entra a `http://localhost:5173` en tu navegador.
-2. **Paso 2 · Completar la solicitud**: escribe una referencia en **Referencia / Equipo \*** (por ejemplo, *"Celular soporte"*), ajusta **Expira en (min)** y, si deseas envío automático, ingresa el **Correo destino (opcional)**.
-3. **Paso 3 · Generar el enlace**: presiona **Generar enlace** (o **Generar y enviar por correo** si llenaste el correo).
-4. **Paso 4 · Compartir y autorizar**: abre el enlace desde el correo o usando los botones **Copiar** / **Abrir** del panel. En la página que se abre, presiona **Compartir mi ubicación** y acepta el permiso del navegador.
-5. **Paso 5 · Consultar el resultado**: vuelve al panel (se actualiza solo cada 10 segundos si **Auto-actualizar (10s)** está marcado, o presiona **Actualizar**). Verás el estado **`COMPLETADO`**, las coordenadas y el botón **Ver en mapa**.
+1. **Paso 1 · Abrir el panel**: entra a `http://localhost:5173` (si definiste `APP_ADMIN_KEY`, ingresa la clave en **Acceso al panel**).
+2. **Paso 2 · Crear solicitud**: presiona **`＋ Nueva solicitud`** (arriba a la derecha o en la barra de secciones), escribe la referencia, elige la expiración y opcionalmente el correo destino.
+3. **Paso 3 · Compartir el enlace**: cópialo, envíalo por **WhatsApp** o déjalo enviarse automáticamente por Gmail. El enlace aparece enseguida en la sección **Sin sincronizar**.
+4. **Paso 4 · Consentimiento del equipo**: la persona abre `/compartir/{token}`, presiona **Compartir mi ubicación** y acepta el permiso del navegador.
+5. **Paso 5 · Consultar en Sincronizados**: el panel se actualiza cada 10s (o con **↻ Actualizar**) y mueve automáticamente el equipo a **Sincronizados** con coordenadas, precisión, mapa integrado y enlaces a OpenStreetMap / Google Maps.
 
 ### Si ves este mensaje…
 
@@ -387,6 +393,8 @@ APP_BASE_URL=http://localhost:8080
 | **Exposición de credenciales SMTP** | `MAIL_USERNAME` y `MAIL_PASSWORD` se leen desde `.env` (excluido en `.gitignore`) y la conexión a Gmail exige `STARTTLS` (`mail.smtp.starttls.required=true`). |
 | **Inyección SQL y datos malformados** | Persistencia mediante Spring Data JPA / Hibernate con consultas parametrizadas y validación estricta de rangos geográficos (`-90..90`, `-180..180`), correos y campos requeridos. |
 | **Cross-Site Scripting (XSS)** | `compartir.html` renderiza mensajes con `textContent` y crea enlaces con `document.createElement("a")` en lugar de `innerHTML`. |
+| **Acceso no autorizado al panel** | `AdminKeyFilter` protege `GET/POST /api/enlaces` con `X-Admin-Key` y comparación en tiempo constante (`MessageDigest.isEqual`) cuando `APP_ADMIN_KEY` está configurada, y `application-prod.properties` desactiva `/h2-console` y `show-sql`. |
+| **Fuga de errores internos SMTP** | `GlobalExceptionHandler` registra la traza SMTP solo en logs del servidor (`SLF4J`) y devuelve un mensaje genérico limpio al cliente. |
 | **CORS abierto** | `CorsConfig` restringe `/api/**` únicamente a los orígenes declarados en `APP_CORS_ORIGINS` (por defecto `http://localhost:5173` y `http://127.0.0.1:5173`). |
 
 ### ¿Por qué HTTPS es obligatorio y la mejor opción?
@@ -429,21 +437,23 @@ cd frontend && npm run build
 geolocalizador/
 ├── pom.xml                                # Dependencias y configuración Maven (Java 21, Spring Boot 3.4.5)
 ├── src/main/java/com/geolocalizador/
-│   ├── config/                            # Configuración CORS para el frontend
+│   ├── config/                            # CorsConfig y AdminKeyFilter (protección por X-Admin-Key)
 │   ├── controller/                        # Endpoints REST (/api/ubicaciones, /api/enlaces) y vista /compartir
-│   ├── dto/                               # Records de entrada/salida con validaciones Jakarta
-│   ├── exception/                         # Manejo centralizado de errores HTTP (400, 404, 502)
+│   ├── dto/                               # Records de entrada/salida con validaciones Jakarta y fechas UTC (Instant)
+│   ├── exception/                         # Manejo centralizado de errores HTTP (400, 404, 409, 502)
 │   ├── model/                             # Entidades JPA (Ubicacion y EnlaceUbicacion)
 │   ├── repository/                        # Repositorios Spring Data JPA
 │   └── service/                           # Lógica geodésica (Haversine), enlaces y envío SMTP Gmail
 ├── src/main/resources/
-│   ├── application.properties             # Configuración de H2 en archivo, Gmail SMTP e importación de .env
+│   ├── application.properties             # Configuración base (H2 local, Gmail SMTP, .env y APP_ADMIN_KEY)
+│   ├── application-prod.properties        # Perfil producción (apaga h2-console/show-sql y admite BD externa)
 │   └── static/                            # Página pública de consentimiento (compartir.html)
 ├── src/test/
-│   ├── java/com/geolocalizador/           # 11 pruebas unitarias y de integración con MockMvc
+│   ├── java/com/geolocalizador/           # 12 pruebas unitarias y de integración con MockMvc
 │   └── resources/                         # Propiedades aisladas para pruebas (H2 en memoria, sin .env)
 └── frontend/
-    └── src/                               # Panel visual en React 19 + Vite (App.jsx y styles.css)
+    ├── public/img/                        # Favicon, logo y fondo de mapa 4K
+    └── src/                               # Panel visual en React 19 + Vite por secciones (App.jsx y styles.css)
 ```
 
 ---
@@ -491,11 +501,11 @@ Si el enlace dice `http://localhost:8080`, solo funcionará en el computador don
 
 | Hoy | Evolución propuesta |
 | :--- | :--- |
-| Sin autenticación ni roles en el panel y la API (`/api/**`). | Incorporar Spring Security + JWT o OAuth2 para uso multiusuario. |
-| Base de datos H2 local con consola habilitada en `/h2-console`. | Migrar a PostgreSQL + PostGIS para consultas espaciales nativas y deshabilitar consolas en producción. |
-| Sin rate limiting en creación de enlaces ni envío de correos. | Agregar límite de tasa (ej. Bucket4j) para prevenir abuso de SMTP. |
-| Visualización en mapa abriendo OpenStreetMap en pestaña externa. | Integrar un mapa interactivo embebido (Leaflet) dentro del panel React. |
-| Sin contenedorización (`Dockerfile`) ni pipeline CI. | Añadir `Dockerfile`, `docker-compose.yml` y GitHub Actions para correr `mvn test` y `npm run build` en cada PR. |
+| Acceso al panel con clave única (`APP_ADMIN_KEY`). | Incorporar cuentas multiusuario, roles y JWT/OAuth2 si lo usan varios operadores. |
+| Mapa embebido básico de OpenStreetMap por tarjeta. | Integrar **Leaflet** con círculo de radio de precisión real y vista global de todos los equipos sincronizados. |
+| Coordenadas numéricas sin dirección textual. | Agregar **geocodificación inversa** (Nominatim) para guardar y mostrar la dirección aproximada legible. |
+| Enlaces solo vencen por tiempo y polling cada 10s. | Añadir **revocación/eliminación** de enlaces, código **QR** instantáneo, correo **HTML** y actualizaciones en tiempo real con **SSE**. |
+| Sin contenedorización ni pipeline CI. | Añadir `Dockerfile`, `docker-compose.yml` (con PostgreSQL) y GitHub Actions para correr `mvn test` y `npm run build` en cada PR. |
 
 ---
 
